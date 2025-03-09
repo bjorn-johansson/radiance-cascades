@@ -16,8 +16,8 @@ git update-index --assume-unchanged external/glfw/*
 # Ignore build artifacts
 radiance-cascades.dir/
 x64/
-*.vcxproj.user
 *.vxproj
+*.vcxproj.user
 *.vxproj.filters
 /build
 */CMakeCache.txt
