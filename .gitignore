@@ -1,0 +1,23 @@
+# Ignore build artifacts
+/build
+/CMakeCache.txt
+/CMakeFiles/
+
+# Ignore Rider-specific files
+.idea/
+cmake-build-debug/
+cmake-build-release/
+
+# Ignore compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+*.lib
+*.pdb
+
+# Ignore logs and temp files
+*.log
+*.tmp
