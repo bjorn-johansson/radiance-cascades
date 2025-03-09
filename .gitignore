@@ -11,6 +11,9 @@ glew/GLEW.vcxproj.filters
 glew/INSTALL.vcxproj
 glew/INSTALL.vcxproj.filters
 
+#ignore Tracy
+tracy/
+
 # Ignore Visual Studio files
 .vs/
 .vscode/

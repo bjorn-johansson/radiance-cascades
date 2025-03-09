@@ -34,11 +34,15 @@
 
 #include "Utilities.hpp"
 #include "TriangleSoup.hpp"
+#include "Tracy.hpp"
+
+
 
 /*
  * main(int argc, char* argv[]) - the standard C++ entry point for the program
  */
 int main(int, char*[]) {
+
     // Initialise GLFW
     glfwInit();
 
@@ -94,6 +98,7 @@ int main(int, char*[]) {
 
     // Main loop
     while (!glfwWindowShouldClose(window)) {
+        ZoneScoped;
         // Set the clear color to a dark gray (RGBA)
         glClearColor(0.3f, 0.3f, 0.3f, 0.0f);
         // Clear the color and depth buffers for drawing
@@ -112,6 +117,7 @@ int main(int, char*[]) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, GL_TRUE);
         }
+        FrameMark; // Marks the end of a frame for Tracy
     }
 
     // Close the OpenGL window and terminate GLFW

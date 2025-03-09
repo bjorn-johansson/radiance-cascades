@@ -20,8 +20,6 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/glfw)
-add_subdirectory(external/tracy)
-
 
 set(HEADER_FILES
 	Rotator.hpp
@@ -70,5 +68,20 @@ else()
 	target_link_libraries(radiance-cascades PUBLIC GLEW::GLEW)
 endif()
 
-target_link_libraries(radiance-cascades PRIVATE TracyClient)
-target_compile_definitions(radiance-cascades PRIVATE TRACY_ENABLE)
+
+if(EXISTS "${CMAKE_SOURCE_DIR}/tracy/public")
+    message(STATUS "Tracy found at ${CMAKE_SOURCE_DIR}/tracy/public")
+    
+    include_directories("${CMAKE_SOURCE_DIR}/tracy/public/tracy")
+
+    # Enable Tracy profiling
+    add_definitions(-DTRACY_ENABLE)
+
+    # Add TracyClient.cpp as a source file
+    set(TRACY_SOURCES "tracy/public/TracyClient.cpp")
+
+    # Include TracyClient.cpp in your project target
+    target_sources(radiance-cascades PRIVATE ${TRACY_SOURCES})
+else()
+     message(STATUS "Tracy not found! It should be at:\n ${CMAKE_SOURCE_DIR}/RadianceCascades/tracy/public/tracy \n")
+endif()
