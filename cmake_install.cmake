@@ -34,7 +34,12 @@ endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)
   # Include the install script for the subdirectory.
-  include("H:/LIU/3d Graphics/Project/RadianceCascades/glfw-3.3.2/cmake_install.cmake")
+  include("H:/LIU/3d Graphics/Project/RadianceCascades/external/glfw/cmake_install.cmake")
+endif()
+
+if(NOT CMAKE_INSTALL_LOCAL_ONLY)
+  # Include the install script for the subdirectory.
+  include("H:/LIU/3d Graphics/Project/RadianceCascades/external/tracy/cmake_install.cmake")
 endif()
 
 if(NOT CMAKE_INSTALL_LOCAL_ONLY)

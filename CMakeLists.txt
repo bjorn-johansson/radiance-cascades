@@ -21,8 +21,7 @@ set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/glfw)
 add_subdirectory(external/tracy)
-target_link_libraries(radiance-cascades PRIVATE TracyClient)
-target_compile_definitions(radiance-cascades PRIVATE TRACY_ENABLE)
+
 
 set(HEADER_FILES
 	Rotator.hpp
@@ -63,10 +62,13 @@ target_link_libraries(radiance-cascades PRIVATE OpenGL::GL glfw)
 option(RC_USE_EXTERNAL_GLEW "GLEW is provided externally" OFF)
 # Set CMake to prefere Vendor gl libraries rather than legacy, fixes warning on some unix systems
 if(NOT RC_USE_EXTERNAL_GLEW)
-	set(OpenGL_GL_PREFERENCE GLVND) 
+    set(OpenGL_GL_PREFERENCE GLVND) 
 	add_subdirectory(glew)
 	target_link_libraries(radiance-cascades PUBLIC RC::GLEW)
 else()
 	find_package(GLEW REQUIRED)
 	target_link_libraries(radiance-cascades PUBLIC GLEW::GLEW)
 endif()
+
+target_link_libraries(radiance-cascades PRIVATE TracyClient)
+target_compile_definitions(radiance-cascades PRIVATE TRACY_ENABLE)
