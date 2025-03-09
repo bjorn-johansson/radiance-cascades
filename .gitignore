@@ -10,6 +10,9 @@
 *.ipch
 
 # Ignore build artifacts
+radiance-cascades.dir/
+x64/
+*.vcxproj.user
 /build
 /CMakeCache.txt
 /CMakeFiles/
