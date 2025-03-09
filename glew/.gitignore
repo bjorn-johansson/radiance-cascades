@@ -1,0 +1,42 @@
+
+# Ignore Visual Studio files
+.vs/
+.vscode/
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Ignore IntelliSense files
+*.ipch
+
+# Ignore build artifacts
+radiance-cascades.dir/
+x64/
+*.vxproj
+*.vcxproj.user
+*.vxproj.filters
+/build
+*/CMakeCache.txt
+*/CMakeFiles/
+*.sln
+*.cmake
+
+# Ignore Rider-specific files
+.idea/
+cmake-build-debug/
+cmake-build-release/
+
+# Ignore compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.o
+*.a
+*.lib
+*.pdb
+
+# Ignore logs and temp files
+*.log
+*.tmp
