@@ -17,9 +17,13 @@ git update-index --assume-unchanged external/glfw/*
 radiance-cascades.dir/
 x64/
 *.vcxproj.user
+*.vxproj
+*.vxproj.filters
 /build
-/CMakeCache.txt
-/CMakeFiles/
+*/CMakeCache.txt
+*/CMakeFiles/
+*.sln
+*.cmake
 
 # Ignore Rider-specific files
 .idea/
