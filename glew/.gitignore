@@ -17,8 +17,8 @@ x64/
 *.vcxproj.user
 *.vxproj.filters
 /build
-*/CMakeCache.txt
-*/CMakeFiles/
+/CMakeCache.txt
+/CMakeFiles/
 *.sln
 *.cmake
 
