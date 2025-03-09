@@ -2,6 +2,15 @@
 git update-index --assume-unchanged external/tracy/*
 git update-index --assume-unchanged external/glfw/*
 
+
+# Ignore build files in glew submodule
+glew/ALL_BUILD.vcxproj
+glew/ALL_BUILD.vcxproj.filters
+glew/GLEW.vcxproj
+glew/GLEW.vcxproj.filters
+glew/INSTALL.vcxproj
+glew/INSTALL.vcxproj.filters
+
 # Ignore Visual Studio files
 .vs/
 .vscode/
@@ -14,6 +23,9 @@ git update-index --assume-unchanged external/glfw/*
 *.ipch
 
 # Ignore build artifacts
+ALL_BUILD.vcxproj
+ZERO_CHECK.vcxproj
+radiance-cascades.vcxproj
 radiance-cascades.dir/
 x64/
 *.vxproj
