@@ -1,3 +1,7 @@
+# Ignore submodule changes due to build files
+git update-index --assume-unchanged external/tracy/*
+git update-index --assume-unchanged external/glfw/*
+
 # Ignore Visual Studio files
 .vs/
 .vscode/
