@@ -19,8 +19,10 @@ set(GLFW_BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
-add_subdirectory(glfw-3.3.2)
-add_subdirectory(
+add_subdirectory(external/glfw)
+add_subdirectory(external/tracy)
+target_link_libraries(radiance-cascades PRIVATE TracyClient)
+target_compile_definitions(radiance-cascades PRIVATE TRACY_ENABLE)
 
 set(HEADER_FILES
 	Rotator.hpp
