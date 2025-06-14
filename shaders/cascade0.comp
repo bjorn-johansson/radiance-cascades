@@ -1,0 +1,153 @@
+﻿#version 430 core
+
+layout(local_size_x = 4, local_size_y = 1, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+layout(binding = 0) uniform usampler2D uBitmapTexture;          //READ
+layout(binding = 1, rgba32f) uniform sampler2D uMaterialAtlas;  //READ
+layout(binding = 2, rgba32f) uniform writeonly image2D uCascade0;//WRITE
+//bitmap is 1 cell/uint. 2 least significant bits denote type:
+//  00 = 0 = empty
+//  01 = 1 = wall
+//  10 = 2 = emissive
+//  11 = 3 = transmissive - unused for now
+//the remaining 6 denote material ID: 11111100
+
+const vec3 airAbsorption = vec3(0.05f);
+
+const uint TYPE_MASK = 0x3;
+const uint MATERIAL_MASK = 0xFC;
+
+const bvec4 BLOCKS_RAY = bvec4(false, true, true, false); //TODO: change to bitmasks?
+const bvec4 IS_EMITTER = bvec4(false, false, true, false);//TODO: change to bitmasks?
+
+// pseudocode of a probe for now
+struct C0Probe {
+    vec2 pos;
+    float rayDirs[4];
+    float t;
+};
+
+void main() {
+    uvec2 id = gl_GlobalInvocationID.xy;
+    C0Probe probe;
+    probe.pos = vec2(0,0);
+    probe.t = 10.f;
+    probe.rayDirs = float[4](1.f, 0.5f, 0.f, -0.5f);
+    
+    
+    //Setup DDA
+    vec2 ro = probe.pos;
+    ivec2 cell = ivec2(floor(ro));
+    vec2 rd = vec2(cos(probe.rayDirs[id.x % 4]), sin(probe.rayDirs[id.x % 4]));
+    
+    float distBetweenColumns = sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x));
+    float distBetweenRows    = sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y));
+    
+    vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x),
+                                sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y))));
+    
+    vec2 roFract = ro - cell;
+    ivec2 step = ivec2(sign(rd));
+    // going in the direction of the ray, how far will we travel through each column/row?
+    vec2 distToEdge; 
+    distToEdge.x = float(step.x >= 0.f) * (1 - roFract.x) * rayUnitStepSize.x;  //positive dir
+    distToEdge.x += float(step.x < 0.f) * roFract.x * rayUnitStepSize.x;        //negative dir
+
+    distToEdge.y = float(step.y >= 0.f) * (1 - roFract.y) * rayUnitStepSize.y;
+    distToEdge.y += float(step.y < 0.f) * roFract.y * rayUnitStepSize.y;
+    
+    vec3 radiance = vec3(0.f);
+    float prevDist = 0.f;
+    float killRay = 1.0f;
+    float t = 0.f; //total distance traveled
+    
+    const int C0t = 5; //TODO: fix ray length/cell step inconsistency (tilted square issue)
+    for(int i = 0; i < C0t; i++) {
+        //get object data of the current cell
+        uint cellData = texelFetch(uBitmapTexture, ivec2(cell), 0).r; //TODO: fix negative texture reads
+        uint typeID = (cellData & TYPE_MASK);
+        //object bools
+        float blocks = float(BLOCKS_RAY[typeID]);
+        float emits = float(IS_EMITTER[typeID]);
+        float transmits = 1.f - blocks;
+        
+        //get the emissive material. If it isn't emissive set index to 0 to improve cache hits. TODO: try changing this and compare with tracy!
+        uint matID = (cellData >> 2) * uint(emits);
+        ivec2 matTexel = ivec2(matID % 8, matID / 8);
+        vec4 packed = texelFetch(uMaterialAtlas, matTexel); //0 vector at indx 0
+        vec3 emission = packed.rgb * packed.a;
+        
+        //emitter
+        radiance += killRay * emission * exp(-airAbsorption * t); //beers law for attenuation
+        
+        //wall or light kills the ray. 
+        killRay = min(killRay, (1.f - blocks));
+        
+        //advance DDA
+        float nextDist = min(distToEdge.x, distToEdge.y);
+        t += nextDist - prevDist;
+        prevDist = nextDist;
+        
+        int xCloser = int(distToEdge.x < distToEdge.y);
+        int yCloser = 1 - xCloser;
+        
+        cell.x += xCloser * step.x;
+        distToX += xCloser * rayUnitStepSize.x;
+        cell.y += yCloser * step.y;
+        distToY += yCloser * rayUnitStepSize.y;
+    }
+    //store collected ray data into cascade
+    
+    const int sqrtProbeCount = 64;
+    const ivec2 rayOffsets[4] = ivec2[4](
+    ivec2(0, 0),  // ray 0
+    ivec2(1, 0),  // ray 1
+    ivec2(0, 1),  // ray 2
+    ivec2(1, 1)   // ray 3
+    );
+
+    ivec2 probeCoord = ivec2(gl_WorkGroupID.xy) * 2;
+    ivec2 texCoord = probeCoord + rayOffsets[gl_LocalInvocationID.x];
+    //uv map for now
+    radiance = vec3(rayOffsets[gl_LocalInvocationID.x], 0.f);
+    imageStore(uCascade0, texCoord, vec4(radiance, 0.f));
+}
+
+
+
+
+
+
+
+
+
+/*things to try:
+
+
+    * try splitting long high-cascade rays into multiple threads to avoid having an individual thread march 400 steps
+    - perhaps a group per ray, and then we accumulate the total?
+
+    * accumulate attenuation for every cell, we should get volumetrics for little extra cost
+    
+    to do it travelDist through a cell is needed:
+    float travelDist = nextDist - prevDist;  //  can be used to partially affect ray based on volume
+    
+    
+    * wall bounces:
+    change wall hits to a bounce and redirect ray. Would require normals.
+    would also require calculating the new angle every cell, perhaps doable with tables and set amount of wall angles?
+    
+    
+    
+    used when only 2 bits denoted type:
+//uint getTypeID(ivec2 gridCell) { 
+//    int cellX = gridCell.x / 4;
+//    int cellInTexel = gridCell.x % 4;
+//
+//    uint texel = texelFetch(uBitmapTexture, ivec2(cellX, gridCell.y), 0).r;
+//    uint shift = uint(cellInTexel) * 2u;
+//
+//    return (texel >> shift) & TYPE_MASK; //only take the 2 relevant bits
+//}
+
+*/
+ 

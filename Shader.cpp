@@ -19,6 +19,9 @@ Shader::Shader() : programID_(0) {}
 Shader::Shader(const std::string& vertexshaderfile, const std::string& fragmentshaderfile) {
     createShader(vertexshaderfile, fragmentshaderfile);
 }
+Shader::Shader(const std::string& computeshaderfile) {
+    createComputeShader(computeshaderfile);
+}
 
 Shader::~Shader() {
     if (programID_ != 0) {
@@ -107,4 +110,28 @@ void Shader::createShader(const std::string& vertexshaderfile,
     glDeleteShader(fragmentShader);  // these are no longer needed
 
     programID_ = programObject;  // Save this value in the class variable
+}
+
+//should probably just have made the above function variadic, but sometimes it's just easier to write it twice.
+void Shader::createComputeShader(const std::string& computeshaderfile) {
+    if (programID_ != 0) {
+        glDeleteProgram(programID_);
+    }
+    GLuint computeShader = loadShader(GL_COMPUTE_SHADER, computeshaderfile);
+    
+    GLuint programObject = glCreateProgram();
+    glAttachShader(programObject, computeShader);
+    
+    glLinkProgram(programObject);
+    
+    GLint shaderLinked = GL_FALSE;
+    glGetProgramiv(programObject, GL_LINK_STATUS, &shaderLinked);
+    
+    if(shaderLinked == GL_FALSE) {
+        char buf[4096] = {0};
+        glGetProgramInfoLog(programObject, sizeof(buf), nullptr, buf);
+        std::cerr << "Compute Shader program linker error:\n" << buf << "\n";
+    }
+    glDeleteShader(computeShader);
+    programID_ = programObject;
 }

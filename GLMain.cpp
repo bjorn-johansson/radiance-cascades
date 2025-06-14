@@ -17,6 +17,7 @@
  *
  * This code is in the public domain.
  */
+
 #if defined(WIN32) && !defined(_USE_MATH_DEFINES)
 #define _USE_MATH_DEFINES
 #endif
@@ -34,6 +35,8 @@
 
 #include "Utilities.hpp"
 #include "TriangleSoup.hpp"
+#include <glm.hpp>
+#include "Shader.hpp"
 #include "Tracy.hpp"
 
 
@@ -45,13 +48,13 @@ int main(int, char*[]) {
 
     // Initialise GLFW
     glfwInit();
-
+    
     const GLFWvidmode* vidmode;  // GLFW struct to hold information about the display
     // Determine the desktop size
     vidmode = glfwGetVideoMode(glfwGetPrimaryMonitor());
 
-    // Make sure we are getting a GL context of at least version 3.3
-    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
+    // Make sure we are getting a GL context of at least version 4.3 for compute shader capability
+    glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 3);
     // Enable the OpenGL core profile
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
@@ -59,13 +62,13 @@ int main(int, char*[]) {
 
     // Open a square window (aspect 1:1) to fill half the screen height
     GLFWwindow* window =
-        glfwCreateWindow(vidmode->height / 2, vidmode->height / 2, "GLprimer", nullptr, nullptr);
+        glfwCreateWindow(1920, 1080, "GLprimer", nullptr, nullptr);
     if (!window) {
         std::cout << "Unable to open window. Terminating.\n";
         glfwTerminate();  // No window was opened, so we can't continue in any useful way
         return -1;
     }
-
+    
     // Make the newly created window the "current context" for OpenGL
     // (This step is strictly required or things will simply not work)
     glfwMakeContextCurrent(window);
@@ -96,6 +99,39 @@ int main(int, char*[]) {
 
     glfwSwapInterval(0);  // Do not wait for screen refresh between frames
 
+
+
+    //----------------------------------cascade 0 setup---------------------------------------------
+
+
+    //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
+    GLuint bitmapTex;
+    glGenTextures(1, &bitmapTex);
+    glActiveTexture(GL_TEXTURE0); //binding = 0
+    glBindTexture(GL_TEXTURE_2D, bitmapTex);
+    const int worldWidth = 128;
+    const int worldHeight = 128;
+    std::vector<uint8_t> bitmapData(worldWidth * worldHeight, 0);
+
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, worldWidth, worldHeight, 0,
+        GL_RED_INTEGER, GL_UNSIGNED_BYTE, &bitmapData);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+    //material atlas. Each texel has a color and a brightness, thats all the data materials contain for now.
+    GLuint materialAtlas;
+    glGenTextures(1, &materialAtlas);
+    glActiveTexture(GL_TEXTURE1); //binding = 1
+    glBindTexture(GL_TEXTURE_2D, materialAtlas);
+    std::vector<glm::vec4> atlasData(8*8, glm::vec4(0.0f));
+    Shader c0("shaders/cascade0.comp");
+    glUseProgram(c0.id());
+    
+    
+
+
+    
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         ZoneScoped;
@@ -104,15 +140,22 @@ int main(int, char*[]) {
         // Clear the color and depth buffers for drawing
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+
+
+        
         /* ---- Rendering code should go here ---- */
         soup.render();
 
+
+
+
+
+        
+        
         // Swap buffers, display the image and prepare for next frame
         glfwSwapBuffers(window);
-
         // Poll events (read keyboard and mouse input)
         glfwPollEvents();
-
         // Exit if the ESC key is pressed (and also if the window is closed)
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, GL_TRUE);

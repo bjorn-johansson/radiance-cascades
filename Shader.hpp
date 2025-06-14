@@ -22,12 +22,15 @@ public:
 
     // Constructor to create, load and compile a Shader program in one blow.
     Shader(const std::string& vertexshaderfile, const std::string& fragmentshaderfile);
+    // Additional constructor just to allow for compute shaders.
+    Shader(const std::string& computeshaderfile);
 
     // Destructor
     ~Shader();
 
     // createShader() - create, load, compile and link the GLSL shader objects.
     void createShader(const std::string& vertexshaderfile, const std::string& fragmentshaderfile);
+    void createComputeShader(const std::string& computeshaderfile);
 
     GLuint id() const;
 
