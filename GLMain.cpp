@@ -29,13 +29,15 @@
 
 // glew provides easy access to advanced OpenGL functions and extensions
 #include <GL/glew.h>
+//openGL maths library
+#include <glm/glm.hpp>
 
 // GLFW 3.x, to handle the OpenGL window
 #include <GLFW/glfw3.h>
 
 #include "Utilities.hpp"
 #include "TriangleSoup.hpp"
-#include <glm.hpp>
+
 #include "Shader.hpp"
 #include "Tracy.hpp"
 
@@ -101,36 +103,129 @@ int main(int, char*[]) {
 
 
 
+
+
+
+
+
+
+
+
+
+    //quad for writing to screen:
+    float quadVertices[] = {
+        // positions   // texCoords
+        -0.9f, -0.9f,    0.f, 0.f,
+         0.9f, -0.9f,    1.f, 0.f,
+        -0.9f,  0.9f,    0.f, 1.f,
+         0.9f,  0.9f,    1.f, 1.f,
+    };
+
+    GLuint quadVAO, quadVBO;
+    glGenVertexArrays(1, &quadVAO);
+    glGenBuffers(1, &quadVBO);
+    glBindVertexArray(quadVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, quadVBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(quadVertices), quadVertices, GL_STATIC_DRAW);
+
+    // Position attribute
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
+    // TexCoords attribute
+    glEnableVertexAttribArray(1);
+    glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
+
+    glBindVertexArray(0);
+    
+
     //----------------------------------cascade 0 setup---------------------------------------------
 
+    
 
+
+    std::cout << "Bitmap setup.\n";
     //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
     GLuint bitmapTex;
     glGenTextures(1, &bitmapTex);
     glActiveTexture(GL_TEXTURE0); //binding = 0
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
-    const int worldWidth = 128;
-    const int worldHeight = 128;
+    
+    constexpr int worldWidth = 128;
+    constexpr int worldHeight = 128;
     std::vector<uint8_t> bitmapData(worldWidth * worldHeight, 0);
-
-    glTexImage2D(GL_TEXTURE_2D, 0, GL_R8UI, worldWidth, worldHeight, 0,
-        GL_RED_INTEGER, GL_UNSIGNED_BYTE, &bitmapData);
+    
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, worldWidth, worldHeight);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, worldWidth, worldHeight,
+        GL_RED_INTEGER,GL_UNSIGNED_BYTE, bitmapData.data());
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     
-    //material atlas. Each texel has a color and a brightness, thats all the data materials contain for now.
+
+
+
+
+    std::cout << "Material atlas setup.\n";
+    //emissive material atlas. Each texel has a color and a brightness, that's all that materials contain for now.
     GLuint materialAtlas;
     glGenTextures(1, &materialAtlas);
     glActiveTexture(GL_TEXTURE1); //binding = 1
     glBindTexture(GL_TEXTURE_2D, materialAtlas);
-    std::vector<glm::vec4> atlasData(8*8, glm::vec4(0.0f));
+    
+    constexpr int atlasSide = 8;
+    std::vector atlasData(atlasSide * atlasSide, glm::vec4(0.0f));
+    
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, 8,8);
+    glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0,atlasSide,atlasSide,
+        GL_RGBA, GL_FLOAT, atlasData.data());
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+
+
+
+
+    std::cout << "cascade 0 setup.\n";
+    //cascade 0
+    GLuint cascadeImage;
+    glGenTextures(1, &cascadeImage);
+    glBindTexture(GL_TEXTURE_2D, cascadeImage);
+
+    //64x64 probes × 2x2 texels = 128x128 output
+    const int cascadeWidth = 128;
+    const int cascadeHeight = 128;
+    
+    //allocate storage gor cascade
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, cascadeWidth, cascadeHeight);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    //bind as an image
+    glBindImageTexture(2, cascadeImage, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+
+
+    //setup c0 comp shader
     Shader c0("shaders/cascade0.comp");
     glUseProgram(c0.id());
+    glDispatchCompute(64, 64, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     
     
-
-
+    //setup simple write to screen
+    Shader screenWrite("shaders/ScreenWrite.vert", "shaders/ScreenWrite.frag");
+    
+    glUseProgram(screenWrite.id());
+    glActiveTexture(GL_TEXTURE3);
+    glBindTexture(GL_TEXTURE_2D, cascadeImage);
+    
+    GLint loc = glGetUniformLocation(screenWrite.id(), "_Texture");
+    glUniform1i(loc, 3);  //tell sampler "_Texture" to use texture unit 3
+    
+    
     
     // Main loop
     while (!glfwWindowShouldClose(window)) {
@@ -144,14 +239,23 @@ int main(int, char*[]) {
 
         
         /* ---- Rendering code should go here ---- */
-        soup.render();
+        //soup.render();
 
-
-
+        glUseProgram(c0.id());
+        glDispatchCompute(64, 64, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        
+        glUseProgram(screenWrite.id());
+        glActiveTexture(GL_TEXTURE3);
+        glBindTexture(GL_TEXTURE_2D, cascadeImage);
+        
+        glBindVertexArray(quadVAO);
+        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+        glBindVertexArray(0);
 
 
         
-        
+        util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame
         glfwSwapBuffers(window);
         // Poll events (read keyboard and mouse input)

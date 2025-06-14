@@ -39,7 +39,18 @@ set(SOURCE_FILES
 	Utilities.cpp
 )
 
-add_executable(radiance-cascades ${SOURCE_FILES} ${HEADER_FILES})
+set(SHADER_FILES
+    shaders/cascade0.comp
+    shaders/ScreenWrite.vert
+    shaders/ScreenWrite.frag
+)
+
+add_executable(radiance-cascades
+    ${SOURCE_FILES}
+    ${HEADER_FILES}
+    ${SHADER_FILES}
+)
+
 enable_warnings(radiance-cascades)
 
 if(MSVC AND TARGET radiance-cascades)
@@ -59,7 +70,7 @@ target_compile_definitions(radiance-cascades PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_
 target_link_libraries(radiance-cascades PRIVATE OpenGL::GL glfw glm)
 
 option(RC_USE_EXTERNAL_GLEW "GLEW is provided externally" OFF)
-# Set CMake to prefere Vendor gl libraries rather than legacy, fixes warning on some unix systems
+# Set CMake to prefer Vendor gl libraries rather than legacy, fixes warning on some unix systems
 if(NOT RC_USE_EXTERNAL_GLEW)
     set(OpenGL_GL_PREFERENCE GLVND) 
 	add_subdirectory(glew)
@@ -68,7 +79,6 @@ else()
 	find_package(GLEW REQUIRED)
 	target_link_libraries(radiance-cascades PUBLIC GLEW::GLEW)
 endif()
-
 
 if(EXISTS "${CMAKE_SOURCE_DIR}/tracy/public")
     message(STATUS "Tracy found at ${CMAKE_SOURCE_DIR}/tracy/public")
@@ -81,8 +91,15 @@ if(EXISTS "${CMAKE_SOURCE_DIR}/tracy/public")
     # Add TracyClient.cpp as a source file
     set(TRACY_SOURCES "tracy/public/TracyClient.cpp")
 
-    # Include TracyClient.cpp in your project target
+    # Include TracyClient.cpp in the project target
     target_sources(radiance-cascades PRIVATE ${TRACY_SOURCES})
 else()
      message(STATUS "Tracy not found! It should be at:\n ${CMAKE_SOURCE_DIR}/RadianceCascades/tracy/public/tracy \n")
 endif()
+
+# Copy shaders folder to output directory after build
+add_custom_command(TARGET radiance-cascades POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_SOURCE_DIR}/shaders
+    $<TARGET_FILE_DIR:radiance-cascades>/shaders
+)

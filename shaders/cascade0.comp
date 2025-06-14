@@ -2,7 +2,7 @@
 
 layout(local_size_x = 4, local_size_y = 1, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
 layout(binding = 0) uniform usampler2D uBitmapTexture;          //READ
-layout(binding = 1, rgba32f) uniform sampler2D uMaterialAtlas;  //READ
+layout(binding = 1) uniform sampler2D uMaterialAtlas;  //READ
 layout(binding = 2, rgba32f) uniform writeonly image2D uCascade0;//WRITE
 //bitmap is 1 cell/uint. 2 least significant bits denote type:
 //  00 = 0 = empty
@@ -42,8 +42,8 @@ void main() {
     float distBetweenColumns = sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x));
     float distBetweenRows    = sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y));
     
-    vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x),
-                                sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y))));
+    vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x)),
+                                sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
     
     vec2 roFract = ro - cell;
     ivec2 step = ivec2(sign(rd));
@@ -72,9 +72,9 @@ void main() {
         
         //get the emissive material. If it isn't emissive set index to 0 to improve cache hits. TODO: try changing this and compare with tracy!
         uint matID = (cellData >> 2) * uint(emits);
-        ivec2 matTexel = ivec2(matID % 8, matID / 8);
-        vec4 packed = texelFetch(uMaterialAtlas, matTexel); //0 vector at indx 0
-        vec3 emission = packed.rgb * packed.a;
+        ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
+        vec4 material = texelFetch(uMaterialAtlas, matTexelCoord, 0); //0 vector at indx 0
+        vec3 emission = material.rgb * material.a;
         
         //emitter
         radiance += killRay * emission * exp(-airAbsorption * t); //beers law for attenuation
@@ -91,9 +91,9 @@ void main() {
         int yCloser = 1 - xCloser;
         
         cell.x += xCloser * step.x;
-        distToX += xCloser * rayUnitStepSize.x;
+        distToEdge.x += xCloser * rayUnitStepSize.x;
         cell.y += yCloser * step.y;
-        distToY += yCloser * rayUnitStepSize.y;
+        distToEdge.x += yCloser * rayUnitStepSize.y;
     }
     //store collected ray data into cascade
     
@@ -109,7 +109,7 @@ void main() {
     ivec2 texCoord = probeCoord + rayOffsets[gl_LocalInvocationID.x];
     //uv map for now
     radiance = vec3(rayOffsets[gl_LocalInvocationID.x], 0.f);
-    imageStore(uCascade0, texCoord, vec4(radiance, 0.f));
+    imageStore(uCascade0, texCoord, vec4(radiance, 1.f));
 }
 
 
