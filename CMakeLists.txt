@@ -20,6 +20,7 @@ set(GLFW_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(GLFW_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 
 add_subdirectory(external/glfw)
+add_subdirectory(external/glm)
 
 set(HEADER_FILES
 	Rotator.hpp
@@ -55,7 +56,7 @@ endif()
 
 target_compile_definitions(radiance-cascades PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)
 
-target_link_libraries(radiance-cascades PRIVATE OpenGL::GL glfw)
+target_link_libraries(radiance-cascades PRIVATE OpenGL::GL glfw glm)
 
 option(RC_USE_EXTERNAL_GLEW "GLEW is provided externally" OFF)
 # Set CMake to prefere Vendor gl libraries rather than legacy, fixes warning on some unix systems

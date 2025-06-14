@@ -2,3 +2,6 @@
 	path = external/glfw
 	url = https://github.com/glfw/glfw.git
 	ignore = all
+[submodule "external/glm"]
+	path = external/glm
+	url = https://github.com/g-truc/glm
