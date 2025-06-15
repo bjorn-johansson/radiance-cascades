@@ -41,7 +41,9 @@
 #include "Shader.hpp"
 #include "Tracy.hpp"
 
-
+void SetupCascade() {
+    
+}
 
 /*
  * main(int argc, char* argv[]) - the standard C++ entry point for the program
@@ -64,7 +66,7 @@ int main(int, char*[]) {
 
     // Open a square window (aspect 1:1) to fill half the screen height
     GLFWwindow* window =
-        glfwCreateWindow(1920, 1080, "GLprimer", nullptr, nullptr);
+        glfwCreateWindow(1080, 1080, "GLprimer", nullptr, nullptr);
     if (!window) {
         std::cout << "Unable to open window. Terminating.\n";
         glfwTerminate();  // No window was opened, so we can't continue in any useful way
@@ -140,9 +142,18 @@ int main(int, char*[]) {
 
     //----------------------------------cascade 0 setup---------------------------------------------
 
-    
-
-
+    /*
+        setup:
+        * setup bitmap from tga texture - black = empty, green = light, red = wall
+        * setup cascades 0-3, (use 1 file with different preprocessing directives?)
+        
+        runtime passes:
+        1. update bitmap with world information
+        2. cascades
+        3. combine cascades w/ interpolation
+        
+        
+    */
     std::cout << "Bitmap setup.\n";
     //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
     GLuint bitmapTex;
@@ -185,19 +196,18 @@ int main(int, char*[]) {
 
 
 
-
     std::cout << "cascade 0 setup.\n";
     //cascade 0
-    GLuint cascadeImage;
-    glGenTextures(1, &cascadeImage);
-    glBindTexture(GL_TEXTURE_2D, cascadeImage);
+    GLuint c0Image;
+    glGenTextures(1, &c0Image);
+    glBindTexture(GL_TEXTURE_2D, c0Image);
 
     //64x64 probes × 2x2 texels = 128x128 output
-    const int cascadeWidth = 128;
-    const int cascadeHeight = 128;
+    const int c0Width = 256;
+    const int c0Height = 256;
     
     //allocate storage gor cascade
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, cascadeWidth, cascadeHeight);
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c0Width, c0Height);
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -205,22 +215,125 @@ int main(int, char*[]) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     //bind as an image
-    glBindImageTexture(2, cascadeImage, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+    glBindImageTexture(2, c0Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
 
 
     //setup c0 comp shader
     Shader c0("shaders/cascade0.comp");
     glUseProgram(c0.id());
-    glDispatchCompute(64, 64, 1);
+    glDispatchCompute(32, 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+
+
+
+
+
+
+
+    
+    
+    std::cout << "cascade 1 setup.\n";
+    //cascade 1
+    GLuint c1Image;
+    glGenTextures(1, &c1Image);
+    glBindTexture(GL_TEXTURE_2D, c1Image);
+
+    //32x32 probes × 4x4 texels = 64x64 rays
+    const int c1Width = 256;
+    const int c1Height = 256;
+    
+    //allocate storage gor cascade
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c1Width, c1Height);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    //bind as an image
+    glBindImageTexture(2, c1Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+
+    
+    Shader c1("shaders/cascade1.comp");
+    glUseProgram(c1.id());
+    glDispatchCompute(32, 32, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     
+    
+
+    std::cout << "cascade 2 setup.\n";
+    //cascade 1
+    GLuint c2Image;
+    glGenTextures(1, &c2Image);
+    glBindTexture(GL_TEXTURE_2D, c2Image);
+
+    //32x32 probes × 4x4 texels = 64x64 rays
+    const int c2Width = 256;
+    const int c2Height = 256;
+    
+    //allocate storage gor cascade
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c2Width, c2Height);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    //bind as an image
+    glBindImageTexture(2, c2Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+
+    
+    Shader c2("shaders/cascade2.comp");
+    glUseProgram(c2.id());
+    glDispatchCompute(32, 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+
+    
+
+    std::cout << "cascade 2 setup.\n";
+    //cascade 1
+    GLuint c3Image;
+    glGenTextures(1, &c3Image);
+    glBindTexture(GL_TEXTURE_2D, c3Image);
+
+    //32x32 probes × 4x4 texels = 64x64 rays
+    const int c3Width = 256;
+    const int c3Height = 256;
+    
+    //allocate storage gor cascade
+    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c3Width, c3Height);
+    
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    //bind as an image
+    glBindImageTexture(2, c3Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+
+    
+    Shader c3("shaders/cascade3.comp");
+    glUseProgram(c3.id());
+    glDispatchCompute(32, 32, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+
+
+
+
+
     
     //setup simple write to screen
     Shader screenWrite("shaders/ScreenWrite.vert", "shaders/ScreenWrite.frag");
     
     glUseProgram(screenWrite.id());
     glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, cascadeImage);
+    glBindTexture(GL_TEXTURE_2D, c2Image);
     
     GLint loc = glGetUniformLocation(screenWrite.id(), "_Texture");
     glUniform1i(loc, 3);  //tell sampler "_Texture" to use texture unit 3
@@ -241,19 +354,18 @@ int main(int, char*[]) {
         /* ---- Rendering code should go here ---- */
         //soup.render();
 
-        glUseProgram(c0.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        //glUseProgram(c0.id());
+        //glDispatchCompute(64, 64, 1);
+        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         
         glUseProgram(screenWrite.id());
         glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, cascadeImage);
+        glBindTexture(GL_TEXTURE_2D, c3Image);
         
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindVertexArray(0);
-
-
+        
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame

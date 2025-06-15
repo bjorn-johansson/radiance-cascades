@@ -41,6 +41,9 @@ set(SOURCE_FILES
 
 set(SHADER_FILES
     shaders/cascade0.comp
+    shaders/cascade1.comp
+    shaders/cascade2.comp
+    shaders/cascade3.comp
     shaders/ScreenWrite.vert
     shaders/ScreenWrite.frag
 )
