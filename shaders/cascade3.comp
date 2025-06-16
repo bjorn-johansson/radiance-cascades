@@ -11,7 +11,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore
 //the remaining 6 denote material ID: 11111100
 layout(binding = 0) uniform usampler2D uBitmapTexture;              //READ
 layout(binding = 1) uniform sampler2D uMaterialAtlas;               //READ
-layout(binding = 2, rgba32f) uniform writeonly image2D uCascade0;   //WRITE
+layout(binding = 5, rgba32f) uniform writeonly image2D uCascade;   //WRITE
 
 const float PI = 3.14159265359;
 
@@ -27,6 +27,7 @@ const int PROBE_COUNT = 256;
 const int RAY_COUNT = 256;      //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now as all textures become the same size
 const float RAY_LENGTH = 256;   //const to allow for ray loop unrolling
 const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
+const int PROBE_CLUSTER_SIDE = int(sqrt(RAY_COUNT));
 
 ivec2 CellToTexel(ivec2 cell){
     return ivec2(cell + textureSize(uBitmapTexture, 0).xy * 0.5f);
@@ -34,16 +35,16 @@ ivec2 CellToTexel(ivec2 cell){
 
 //DDA raytracing
 void main() {
-
-    //1 workgroup per probe - THIS IS WRONG, IGNORE THIS PART
-    vec2 ro = (vec2(gl_WorkGroupID) / vec2(gl_NumWorkGroups)) - 0.5f; //-0.5 to 0.5
-    ro *= textureSize(uBitmapTexture, 0).xy; //worldSpace (center origin)
+    uvec2 id = gl_GlobalInvocationID.xy;
+    vec2 probeCoord = id - id % PROBE_CLUSTER_SIDE;
+    ivec2 bitmapSize = textureSize(uBitmapTexture, 0);
+    vec2 ro = ((vec2(probeCoord) + 0.5) / float(CASCADE_TEXTURE_WIDTH)) * bitmapSize - 0.5 * bitmapSize; // center origin, stretched to cover scene.
 
     ivec2 cell = ivec2(floor(ro));
 
     uint ri = gl_LocalInvocationIndex % RAY_COUNT;
-    float ra = 2.f * PI * ((float(ri) + 0.5f) / RAY_COUNT);
-    vec2 rd = vec2(cos(ra), sin(ra));
+    float angle = 2.f * PI * ((float(ri) + 0.5f) / RAY_COUNT);
+    vec2 rd = vec2(cos(angle), sin(angle));
 
     vec2 roFract = ro - cell;
     ivec2 step = ivec2(sign(rd));
@@ -81,9 +82,13 @@ void main() {
         ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
         vec4 material = texelFetch(uMaterialAtlas, matTexelCoord, 0); //0 vector at indx 0
         vec3 emission = material.rgb * material.a;
-
+        vec3 tempEmission = emits * vec3(0,1,0) + float(BLOCKS_RAY[typeID] && !IS_EMITTER[typeID]) * vec3(1,0,0);
+        //+ (1-emits) * (1-blocks) * vec3(0,0,1);
+        
+        //red = wall, green = light, blue = empty;
+        
         //gather radiance
-        radiance += rayIsAlive * emission * exp(-airAbsorption * t); //beers law for attenuation
+        radiance += rayIsAlive * tempEmission * exp(-airAbsorption * t); //beers law for attenuation
 
 
         //a wall, a light or reaching max distance kills the ray. 
@@ -94,35 +99,19 @@ void main() {
         float nextDist = min(distToEdge.x, distToEdge.y);
         t += nextDist - prevDist;
         prevDist = nextDist;
-
+ 
         int xCloser = int(distToEdge.x < distToEdge.y);
         int yCloser = 1 - xCloser;
 
         cell.x += xCloser * step.x;
         distToEdge.x += xCloser * rayUnitStepSize.x;
         cell.y += yCloser * step.y;
-        distToEdge.x += yCloser * rayUnitStepSize.y;
+        distToEdge.y += yCloser * rayUnitStepSize.y;
 
     }
     //store collected ray data into cascade
     
-    const int probeSide = int(sqrt(RAY_COUNT));
-    
-    uvec2 globalID = gl_GlobalInvocationID.xy;
-    uint globalThreadIndex = globalID.y * CASCADE_TEXTURE_WIDTH + globalID.x;
-    
-    uint probeIndex = globalThreadIndex / RAY_COUNT;
-    uint rayIndex = globalThreadIndex % RAY_COUNT;
-
-    uvec2 rayCoordInProbe = uvec2(rayIndex % probeSide, rayIndex / probeSide);
-    
-    const uint probesPerRow = uint(CASCADE_TEXTURE_WIDTH / probeSide);
-    uvec2 probeGridCoord = uvec2(probeIndex % probesPerRow, probeIndex / probesPerRow); //assuming 4:3 for now
-    
-    uvec2 texelCoord = probeGridCoord * probeSide + rayCoordInProbe;
-
-    //just do UVs for now
-    vec2 uvInProbe = vec2(rayCoordInProbe) / float(probeSide);
-    
-    imageStore(uCascade0, ivec2(texelCoord), vec4(uvInProbe, 0.0, 1.0));
+    uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
+    vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
+    imageStore(uCascade, ivec2(id), vec4(radiance, 1.0));
 }

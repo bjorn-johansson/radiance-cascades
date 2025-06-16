@@ -1,0 +1,26 @@
+﻿
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+
+//bitmap is 1 cell/uint. 2 least significant bits denote type:
+//  00 = 0 = empty
+//  01 = 1 = wall
+//  10 = 2 = emissive
+//  11 = 3 = transmissive - unused for now
+//the remaining 6 denote material ID: 11111100
+layout(binding = 0) uniform usampler2D uBitmapTexture;              //READ
+layout(binding = 1) uniform sampler2D uMaterialAtlas;               //READ
+layout(binding = 2, rgba32f) uniform writeonly image2D uCascade;   //WRITE
+
+const float PI = 3.14159265359;
+
+const vec3 airAbsorption = vec3(0.05f);
+
+const int CASCADE_TEXTURE_WIDTH = 256;
+
+//DDA raytracing
+void main() {
+    uvec2 id = gl_GlobalInvocationID.xy;
+}
+

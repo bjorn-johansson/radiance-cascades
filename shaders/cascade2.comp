@@ -11,7 +11,7 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore
 //the remaining 6 denote material ID: 11111100
 layout(binding = 0) uniform usampler2D uBitmapTexture;              //READ
 layout(binding = 1) uniform sampler2D uMaterialAtlas;               //READ
-layout(binding = 2, rgba32f) uniform writeonly image2D uCascade0;   //WRITE
+layout(binding = 4, rgba32f) uniform writeonly image2D uCascade;   //WRITE
 
 const float PI = 3.14159265359;
 
@@ -24,9 +24,10 @@ const bvec4 IS_EMITTER = bvec4(false, false, true, false);//TODO: change to bitm
 
 const int CASCADE_TEXTURE_WIDTH = 256;
 const int PROBE_COUNT = 1024;
-const int RAY_COUNT = 64;       //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now
-const float RAY_LENGTH = 64;    //const to allow for ray loop unrolling
+const int RAY_COUNT = 64;      //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now as all textures become the same size
+const float RAY_LENGTH = 64;   //const to allow for ray loop unrolling
 const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
+const int PROBE_CLUSTER_SIDE = int(sqrt(RAY_COUNT));
 
 ivec2 CellToTexel(ivec2 cell){
     return ivec2(cell + textureSize(uBitmapTexture, 0).xy * 0.5f);
@@ -34,10 +35,11 @@ ivec2 CellToTexel(ivec2 cell){
 
 //DDA raytracing
 void main() {
-
-    //1 workgroup per probe - THIS IS WRONG, IGNORE THIS PART
-    vec2 ro = (vec2(gl_WorkGroupID) / vec2(gl_NumWorkGroups)) - 0.5f; //-0.5 to 0.5
-    ro *= textureSize(uBitmapTexture, 0).xy; //worldSpace (center origin)
+    uvec2 id = gl_GlobalInvocationID.xy;
+    
+    
+    vec2 ro = id * 2 - id;
+    ro *= textureSize(uBitmapTexture, 0).xy / CASCADE_TEXTURE_WIDTH; // center origin, stretched to cover scene.
 
     ivec2 cell = ivec2(floor(ro));
 
@@ -47,10 +49,10 @@ void main() {
 
     vec2 roFract = ro - cell;
     ivec2 step = ivec2(sign(rd));
-    
+
     vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x)),
-                                sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
-    
+    sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
+
     // going in the direction of the ray, how far will we travel through each column/row?
     vec2 distToEdge;
     distToEdge.x = float(step.x >= 0.f) * (1 - roFract.x) * rayUnitStepSize.x;  //positive dir
@@ -106,23 +108,7 @@ void main() {
     }
     //store collected ray data into cascade
 
-    const int probeSide = int(sqrt(RAY_COUNT));
-    
-    uvec2 globalID = gl_GlobalInvocationID.xy;
-    uint globalThreadIndex = globalID.y * CASCADE_TEXTURE_WIDTH + globalID.x;
-    
-    uint probeIndex = globalThreadIndex / RAY_COUNT;
-    uint rayIndex = globalThreadIndex % RAY_COUNT;
-
-    uvec2 rayCoordInProbe = uvec2(rayIndex % probeSide, rayIndex / probeSide);
-    
-    const uint probesPerRow = uint(CASCADE_TEXTURE_WIDTH / probeSide);
-    uvec2 probeGridCoord = uvec2(probeIndex % probesPerRow, probeIndex / probesPerRow); //assuming 4:3 for now
-    
-    uvec2 texelCoord = probeGridCoord * probeSide + rayCoordInProbe;
-
-    //just do UVs for now
-    vec2 uvInProbe = vec2(rayCoordInProbe) / float(probeSide);
-    
-    imageStore(uCascade0, ivec2(texelCoord), vec4(uvInProbe, 0.0, 1.0));
+    uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
+    vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
+    imageStore(uCascade, ivec2(id), vec4(uvInProbe, 0.0, 1.0));
 }

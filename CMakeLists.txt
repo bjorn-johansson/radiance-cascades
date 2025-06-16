@@ -44,6 +44,8 @@ set(SHADER_FILES
     shaders/cascade1.comp
     shaders/cascade2.comp
     shaders/cascade3.comp
+    shaders/GenerateSceneBitmap.comp
+    shaders/MergeCascades.comp
     shaders/ScreenWrite.vert
     shaders/ScreenWrite.frag
 )

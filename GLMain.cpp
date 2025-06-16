@@ -39,6 +39,7 @@
 #include "TriangleSoup.hpp"
 
 #include "Shader.hpp"
+#include "Texture.hpp"
 #include "Tracy.hpp"
 
 void SetupCascade() {
@@ -154,6 +155,7 @@ int main(int, char*[]) {
         
         
     */
+
     std::cout << "Bitmap setup.\n";
     //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
     GLuint bitmapTex;
@@ -161,8 +163,8 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE0); //binding = 0
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
     
-    constexpr int worldWidth = 128;
-    constexpr int worldHeight = 128;
+    constexpr int worldWidth = 1024;
+    constexpr int worldHeight = 1024;
     std::vector<uint8_t> bitmapData(worldWidth * worldHeight, 0);
     
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, worldWidth, worldHeight);
@@ -171,9 +173,29 @@ int main(int, char*[]) {
     
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+
+    Texture worldTex("Textures/SceneTexture.tga");
+    glActiveTexture(GL_TEXTURE10);
+    glBindTexture(GL_TEXTURE_2D, worldTex.id());
+
+
+
+    
+    Shader bitmapGenerator("shaders/GenerateSceneBitmap.comp");
+    glUseProgram(bitmapGenerator.id());
+    
+    GLint sceneTexLoc = glGetUniformLocation(bitmapGenerator.id(), "sceneTexture");
+    
+    glUniform1i(sceneTexLoc, 10);
+    glBindImageTexture(0, bitmapTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8UI);
+    
+    glDispatchCompute(128, 128, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    
     
 
-
+    
 
 
     std::cout << "Material atlas setup.\n";
@@ -253,7 +275,7 @@ int main(int, char*[]) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     //bind as an image
-    glBindImageTexture(2, c1Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+    glBindImageTexture(3, c1Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
 
     
     Shader c1("shaders/cascade1.comp");
@@ -282,7 +304,7 @@ int main(int, char*[]) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     //bind as an image
-    glBindImageTexture(2, c2Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+    glBindImageTexture(4, c2Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
 
     
     Shader c2("shaders/cascade2.comp");
@@ -313,7 +335,7 @@ int main(int, char*[]) {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     //bind as an image
-    glBindImageTexture(2, c3Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
+    glBindImageTexture(5, c3Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
 
     
     Shader c3("shaders/cascade3.comp");
@@ -335,8 +357,8 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE3);
     glBindTexture(GL_TEXTURE_2D, c2Image);
     
-    GLint loc = glGetUniformLocation(screenWrite.id(), "_Texture");
-    glUniform1i(loc, 3);  //tell sampler "_Texture" to use texture unit 3
+    GLint swLoc = glGetUniformLocation(screenWrite.id(), "_Texture");
+    glUniform1i(swLoc, 3);  //tell sampler "_Texture" to use texture unit 3
     
     
     
@@ -347,16 +369,22 @@ int main(int, char*[]) {
         glClearColor(0.3f, 0.3f, 0.3f, 0.0f);
         // Clear the color and depth buffers for drawing
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
-
-
+        
         
         /* ---- Rendering code should go here ---- */
         //soup.render();
 
-        //glUseProgram(c0.id());
-        //glDispatchCompute(64, 64, 1);
-        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        glUseProgram(c0.id());
+        glDispatchCompute(32, 32, 1);
+        glUseProgram(c1.id());
+        glDispatchCompute(32, 32, 1);
+        glUseProgram(c2.id());
+        glDispatchCompute(32, 32, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        glUseProgram(c3.id());
+        glDispatchCompute(32, 32, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        
         
         glUseProgram(screenWrite.id());
         glActiveTexture(GL_TEXTURE3);
@@ -365,7 +393,6 @@ int main(int, char*[]) {
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindVertexArray(0);
-        
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame

@@ -1,0 +1,30 @@
+﻿
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+
+//bitmap is 1 cell/uint. 2 least significant bits denote type:
+//  00 = 0 = empty
+//  01 = 1 = wall
+//  10 = 2 = emissive
+//  11 = 3 = transmissive - unused for now
+//the remaining 6 denote material ID: 11111100
+layout(binding = 0) uniform writeonly uimage2D uBitmapTexture;              //write
+layout(binding = 10) uniform sampler2D sceneTexture;              //read
+
+
+
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    vec4 tex = texelFetch(sceneTexture, id, 0);
+
+    //red = wall
+    //green = emissive
+    //yellow = transmissive
+    uint data = 0;
+    data += 0x1 * uint(tex.r > 0); 
+    data += 0x2 * uint(tex.g > 0);
+    data += uint(data != 0) * 0x4; //material index 1 if its not empty for now.
+    imageStore(uBitmapTexture, id, uvec4(data, 0, 0, 0));
+}
+
