@@ -9,22 +9,23 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore
 //  10 = 2 = emissive
 //  11 = 3 = transmissive - unused for now
 //the remaining 6 denote material ID: 11111100
-layout(binding = 0) uniform writeonly uimage2D uBitmapTexture;              //write
-layout(binding = 10) uniform sampler2D sceneTexture;              //read
+layout(binding = 0, r8ui) uniform writeonly uimage2D _bitmapTexture;              //write
+layout(binding = 10) uniform sampler2D _sceneTexture;              //read
 
 
 
 void main() {
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
-    vec4 tex = texelFetch(sceneTexture, id, 0);
+    ivec2 flip = ivec2(id.x, 1023 - id.y);
+    vec4 tex = texelFetch(_sceneTexture, flip, 0);
 
     //red = wall
     //green = emissive
     //yellow = transmissive
-    uint data = 0;
-    data += 0x1 * uint(tex.r > 0); 
-    data += 0x2 * uint(tex.g > 0);
+    uint data = 0u;
+    data += 0x1 * uint(tex.r > 0.5); //wall
+    data += 0x2 * uint(tex.g > 0.5); //emitter
     data += uint(data != 0) * 0x4; //material index 1 if its not empty for now.
-    imageStore(uBitmapTexture, id, uvec4(data, 0, 0, 0));
+    imageStore(_bitmapTexture, id, uvec4(data));
 }
 

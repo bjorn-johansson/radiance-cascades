@@ -114,14 +114,14 @@ int main(int, char*[]) {
 
 
 
-
+    const float s = 1.f; //for squashing
     //quad for writing to screen:
     float quadVertices[] = {
         // positions   // texCoords
-        -0.9f, -0.9f,    0.f, 0.f,
-         0.9f, -0.9f,    1.f, 0.f,
-        -0.9f,  0.9f,    0.f, 1.f,
-         0.9f,  0.9f,    1.f, 1.f,
+        -s, -s,    0.f, 0.f,
+         s, -s,    1.f, 0.f,
+        -s,  s,    0.f, 1.f,
+         s,  s,    1.f, 1.f,
     };
 
     GLuint quadVAO, quadVBO;
@@ -160,37 +160,35 @@ int main(int, char*[]) {
     //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
     GLuint bitmapTex;
     glGenTextures(1, &bitmapTex);
-    glActiveTexture(GL_TEXTURE0); //binding = 0
+    glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
     
     constexpr int worldWidth = 1024;
     constexpr int worldHeight = 1024;
-    std::vector<uint8_t> bitmapData(worldWidth * worldHeight, 0);
     
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_R8UI, worldWidth, worldHeight);
-    glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0, worldWidth, worldHeight,
-        GL_RED_INTEGER,GL_UNSIGNED_BYTE, bitmapData.data());
-    
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    
+    glBindImageTexture(0, bitmapTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8UI); //binding to image unit 0
+    GLuint zero = 0;
+    glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
+    
     Texture worldTex("Textures/SceneTexture.tga");
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
-
-
-
     
     Shader bitmapGenerator("shaders/GenerateSceneBitmap.comp");
+    
     glUseProgram(bitmapGenerator.id());
-    
-    GLint sceneTexLoc = glGetUniformLocation(bitmapGenerator.id(), "sceneTexture");
-    
-    glUniform1i(sceneTexLoc, 10);
-    glBindImageTexture(0, bitmapTex, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R8UI);
+    glUniform1i(glGetUniformLocation(bitmapGenerator.id(), "sceneTexture"), 10);
     
     glDispatchCompute(128, 128, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+    
 
     
     
@@ -202,11 +200,12 @@ int main(int, char*[]) {
     //emissive material atlas. Each texel has a color and a brightness, that's all that materials contain for now.
     GLuint materialAtlas;
     glGenTextures(1, &materialAtlas);
-    glActiveTexture(GL_TEXTURE1); //binding = 1
+    glActiveTexture(GL_TEXTURE1); //binding to texture unit 1
     glBindTexture(GL_TEXTURE_2D, materialAtlas);
     
     constexpr int atlasSide = 8;
-    std::vector atlasData(atlasSide * atlasSide, glm::vec4(0.0f));
+    std::vector atlasData(atlasSide * atlasSide, glm::vec4(0,1,0,1));
+    atlasData.at(0) = glm::vec4(0,0,0,0);
     
     glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, 8,8);
     glTexSubImage2D(GL_TEXTURE_2D, 0, 0,0,atlasSide,atlasSide,
@@ -218,149 +217,83 @@ int main(int, char*[]) {
 
 
 
+    std::cout << "cascade image array setup.\n";
+    GLuint cascadeTextures;
+    glGenTextures(1, &cascadeTextures);
+    glActiveTexture(GL_TEXTURE2); //binding to texture unit 2
+    glBindTexture(GL_TEXTURE_2D_ARRAY, cascadeTextures);
+    
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 4);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+
+    //bind to image unit 2
+    glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+
+    
+
+    //rebind bitmap to TU 0 for sampling. this shouldn't be necessary as bindings are global
+    glActiveTexture(GL_TEXTURE0);
+    glBindTexture(GL_TEXTURE_2D, bitmapTex);
+    
     std::cout << "cascade 0 setup.\n";
-    //cascade 0
-    GLuint c0Image;
-    glGenTextures(1, &c0Image);
-    glBindTexture(GL_TEXTURE_2D, c0Image);
-
-    //64x64 probes × 2x2 texels = 128x128 output
-    const int c0Width = 256;
-    const int c0Height = 256;
-    
-    //allocate storage gor cascade
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c0Width, c0Height);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    //bind as an image
-    glBindImageTexture(2, c0Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
-
-
-    //setup c0 comp shader
     Shader c0("shaders/cascade0.comp");
     glUseProgram(c0.id());
-    glDispatchCompute(32, 32, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-
-
-
-
-
-
-
-
-    
+    glUniform1i(glGetUniformLocation(c0.id(), "_bitmapTexture"), 0);
     
     std::cout << "cascade 1 setup.\n";
-    //cascade 1
-    GLuint c1Image;
-    glGenTextures(1, &c1Image);
-    glBindTexture(GL_TEXTURE_2D, c1Image);
-
-    //32x32 probes × 4x4 texels = 64x64 rays
-    const int c1Width = 256;
-    const int c1Height = 256;
-    
-    //allocate storage gor cascade
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c1Width, c1Height);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    //bind as an image
-    glBindImageTexture(3, c1Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
-
-    
     Shader c1("shaders/cascade1.comp");
     glUseProgram(c1.id());
-    glDispatchCompute(32, 32, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    glUniform1i(glGetUniformLocation(c1.id(), "_bitmapTexture"), 0);
     
-    
-
     std::cout << "cascade 2 setup.\n";
-    //cascade 1
-    GLuint c2Image;
-    glGenTextures(1, &c2Image);
-    glBindTexture(GL_TEXTURE_2D, c2Image);
-
-    //32x32 probes × 4x4 texels = 64x64 rays
-    const int c2Width = 256;
-    const int c2Height = 256;
-    
-    //allocate storage gor cascade
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c2Width, c2Height);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    //bind as an image
-    glBindImageTexture(4, c2Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
-
-    
     Shader c2("shaders/cascade2.comp");
     glUseProgram(c2.id());
-    glDispatchCompute(32, 32, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-
-
+    glUniform1i(glGetUniformLocation(c2.id(), "_bitmapTexture"), 0);
     
-
-    std::cout << "cascade 2 setup.\n";
-    //cascade 1
-    GLuint c3Image;
-    glGenTextures(1, &c3Image);
-    glBindTexture(GL_TEXTURE_2D, c3Image);
-
-    //32x32 probes × 4x4 texels = 64x64 rays
-    const int c3Width = 256;
-    const int c3Height = 256;
-    
-    //allocate storage gor cascade
-    glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32F, c3Width, c3Height);
-    
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-
-    //bind as an image
-    glBindImageTexture(5, c3Image, 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_RGBA32F); // Binding = 2
-
-    
+    std::cout << "cascade 3 setup.\n";
     Shader c3("shaders/cascade3.comp");
     glUseProgram(c3.id());
-    glDispatchCompute(32, 32, 1);
+    glUniform1i(glGetUniformLocation(c3.id(), "_bitmapTexture"), 0);
+
+    std::cout << "merge setup.\n";
+    Shader merge("shaders/MergeCascades.comp");
+    
+    
+    glUseProgram(c0.id());
+    glDispatchCompute(64, 64, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
+    glUseProgram(c1.id());
+    glDispatchCompute(64, 64, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    
+    glUseProgram(c2.id());
+    glDispatchCompute(64, 64, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
+    
+    glUseProgram(c3.id());
+    glDispatchCompute(64, 64, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
 
-
-
+    glUseProgram(merge.id());
+    glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+    for(int i = 3; i > 0; i--) {
+        glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+        glDispatchCompute(64, 64, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    }
 
 
 
     
     //setup simple write to screen
     Shader screenWrite("shaders/ScreenWrite.vert", "shaders/ScreenWrite.frag");
-    
-    glUseProgram(screenWrite.id());
-    glActiveTexture(GL_TEXTURE3);
-    glBindTexture(GL_TEXTURE_2D, c2Image);
-    
-    GLint swLoc = glGetUniformLocation(screenWrite.id(), "_Texture");
-    glUniform1i(swLoc, 3);  //tell sampler "_Texture" to use texture unit 3
-    
-    
     
     // Main loop
     while (!glfwWindowShouldClose(window)) {
@@ -371,25 +304,61 @@ int main(int, char*[]) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         
-        /* ---- Rendering code should go here ---- */
-        //soup.render();
+        ////-------------------------------GATHER RAYS------------------------------------------------
+        //glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA32F);
+        //glUseProgram(c0.id());
+        //glDispatchCompute(32, 32, 1);
+        //glUseProgram(c1.id());
+        //glDispatchCompute(32, 32, 1);
+        //glUseProgram(c2.id());
+        //glDispatchCompute(32, 32, 1);
+        //glUseProgram(c3.id());
+        //glDispatchCompute(32, 32, 1);
+        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+//
+        ////-------------------------------MERGE CASCADES---------------------------------------------
+        ////RC is typically memory-bound, so we reuse the textures at the cost of having to merge 1 layer at a time.
+        ////this is prime space for profiling and seeing the difference.
+        //glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA32F);
+        //glUseProgram(merge.id());
+        //glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+        //for(int i = 3; i >= 0; i++) {
+        //    glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayer"), i);
+        //    glDispatchCompute(32, 32, 1);
+        //    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        //}
 
+        
         glUseProgram(c0.id());
-        glDispatchCompute(32, 32, 1);
+        glDispatchCompute(64, 64, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
         glUseProgram(c1.id());
-        glDispatchCompute(32, 32, 1);
+        glDispatchCompute(64, 64, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+    
         glUseProgram(c2.id());
-        glDispatchCompute(32, 32, 1);
+        glDispatchCompute(64, 64, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
+    
         glUseProgram(c3.id());
-        glDispatchCompute(32, 32, 1);
+        glDispatchCompute(64, 64, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+
+        glUseProgram(merge.id());
+        glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+        for(int i = 3; i > 0; i--) {
+            glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+            glDispatchCompute(64, 64, 1);
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        }
+
         
-        
+        //write to screen
         glUseProgram(screenWrite.id());
-        glActiveTexture(GL_TEXTURE3);
-        glBindTexture(GL_TEXTURE_2D, c3Image);
-        
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindVertexArray(0);

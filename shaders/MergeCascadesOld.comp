@@ -1,0 +1,65 @@
+﻿
+#version 430 core
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+
+layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
+layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
+
+uniform int _sourceLayer;
+
+const int CASCADE_TEXTURE_WIDTH = 256;
+
+
+vec2 TexelToUV(ivec2 texel){
+    return vec2((texel + 0.5f) / float(CASCADE_TEXTURE_WIDTH));
+}
+vec4 BilinearWeights(vec2 ratio) {
+    return vec4(
+    (1.0 - ratio.x) * (1.0 - ratio.y),
+    ratio.x * (1.0 - ratio.y),
+    (1.0 - ratio.x) * ratio.y,
+    ratio.x * ratio.y
+    );
+}
+void main() {
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    
+    
+    int probeSide = int(pow(2, (_sourceLayer + 1))); //4, 8, 16
+    //current probes ID
+    ivec2 probeID = id / probeSide;
+    //the current probes position
+    ivec2 probeTxl = probeID * probeSide;
+    //split probe into 2x2 blocks to compress, find the current subblock in probe
+    ivec2 subBlock = ivec2((id % probeSide) / 2);
+    //start texel coord of the current subBlock
+    ivec2 sbTexel = probeTxl + subBlock * 2;
+    
+    //collect average block radiance
+    vec3 result = vec3(0.f);
+    for(int dy = 0; dy < 2; dy++)
+    for(int dx = 0; dx < 2; dx++){
+        ivec2 txl = sbTexel + ivec2(dx, dy);
+        result += texture(_cascadeSamplers, vec3(TexelToUV(txl), _sourceLayer)).rgb;
+    }
+    result *= 0.25f;
+
+    int tgtProbeSide = probeSide / 2;
+    //target probes ID
+    ivec2 tgtProbeID = id / tgtProbeSide;
+    //base position of that probe
+    ivec2 tgtProbeTxl = tgtProbeID * tgtProbeSide;
+    ivec2 tgtTxl = tgtProbeTxl + id % tgtProbeSide; //back at id.
+    
+    
+    vec4 targetCol = texture(_cascadeSamplers, vec3((id + 0.5f) / float(CASCADE_TEXTURE_WIDTH), _sourceLayer - 1));
+    result *= (1.f - targetCol.a); //did we get blocked in the lower cascade?
+    result += targetCol.rgb;
+    
+    imageStore(_cascadeImages, ivec3(id, _sourceLayer - 1), vec4(result, targetCol.a));
+    //vec3 col = texture(_cascadeSamplers, vec3(TexelToUV(id), _sourceLayer)).rgb;
+    //imageStore(_cascadeImages, ivec3(id, _sourceLayer - 1), vec4( col + targetCol.rgb, targetCol.a));
+    
+}
+

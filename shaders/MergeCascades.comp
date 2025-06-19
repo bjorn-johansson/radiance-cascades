@@ -3,24 +3,84 @@
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
 
-//bitmap is 1 cell/uint. 2 least significant bits denote type:
-//  00 = 0 = empty
-//  01 = 1 = wall
-//  10 = 2 = emissive
-//  11 = 3 = transmissive - unused for now
-//the remaining 6 denote material ID: 11111100
-layout(binding = 0) uniform usampler2D uBitmapTexture;              //READ
-layout(binding = 1) uniform sampler2D uMaterialAtlas;               //READ
-layout(binding = 2, rgba32f) uniform writeonly image2D uCascade;   //WRITE
+layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
+layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
 
-const float PI = 3.14159265359;
+uniform int _sourceLayerIndex;
 
-const vec3 airAbsorption = vec3(0.05f);
+const int CASCADE_TEXTURE_SIDE = 512;
+const int SCREEN_TEXTURE_SIDE = 1024;
+const float UV_TXL_WIDTH = 1.f / 256.f;
+const int CASCADE_SCALING = 4;
 
-const int CASCADE_TEXTURE_WIDTH = 256;
+const int CASCADE_PROBE_SIDES[4] = { 2, 4, 8, 16 };
 
-//DDA raytracing
+
+
+
+int CoordToIndex(ivec2 coord, int width){
+    return coord.y * width + coord.x;
+}
+vec2 ProbeIndexToUV(int index, int width, ivec2 probeID){
+    ivec2 coord = ivec2(index % width, index / width);
+    ivec2 txl = probeID * width + coord;
+    return (txl + 0.5f) / float(CASCADE_TEXTURE_SIDE);
+}
+
+vec4 BilinearWeights(vec2 ratio) {
+    return vec4(
+    (1.0 - ratio.x) * (1.0 - ratio.y),
+    ratio.x * (1.0 - ratio.y),
+    (1.0 - ratio.x) * ratio.y,
+    ratio.x * ratio.y
+    );
+}
+
+vec3 SampleProbe(ivec2 probeID, int DirBlockIndex){
+//convert to uv for sampling
+    vec2 srcUV = ProbeIndexToUV(DirBlockIndex,CASCADE_PROBE_SIDES[_sourceLayerIndex] ,probeID);
+    
+    vec3 radiance = vec3(0.f);
+    for(int i = 0; i < CASCADE_SCALING; i++){
+        radiance += texture(_cascadeSamplers, vec3(srcUV.x + UV_TXL_WIDTH * i, srcUV.y, _sourceLayerIndex)).rgb; //merge 4 rays into 1
+    }
+    radiance *= 0.25f;
+    
+    return radiance;
+}
+
 void main() {
-    uvec2 id = gl_GlobalInvocationID.xy;
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+    
+    ivec2 tgtCoordInProbe = id % CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
+    
+    //directional index inside the probe that we are writing to
+    int tgtDirIndex = CoordToIndex(tgtCoordInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
+    //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
+    int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
+    
+    vec2 srcProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]);
+    ivec2 base = ivec2(floor(srcProbeGridCoord));
+    vec2 frac = fract(srcProbeGridCoord);
+    vec4 weight = BilinearWeights(frac);
+    
+    int srcProbeGridSide = CASCADE_TEXTURE_SIDE / CASCADE_PROBE_SIDES[_sourceLayerIndex];
+    base = clamp(base, ivec2(0), ivec2(srcProbeGridSide - 2));
+    
+    vec3 P00 = SampleProbe(base, srcIndexBlock);
+    vec3 P10 = SampleProbe(base + ivec2(1, 0), srcIndexBlock);
+    vec3 P01 = SampleProbe(base + ivec2(0, 1), srcIndexBlock);
+    vec3 P11 = SampleProbe(base + 1, srcIndexBlock);
+    
+    vec3 result =   
+    P00 * weight.x +
+    P10 * weight.y + 
+    P01 * weight.z + 
+    P11 * weight.w;
+    
+    vec4 targetCol = texture(_cascadeSamplers, vec3((id + 0.5f) / float(CASCADE_TEXTURE_SIDE), _sourceLayerIndex - 1));
+    result *= (1.f - targetCol.a); //did we get blocked in the lower cascade?
+    result += targetCol.rgb;
+    imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
 }
 

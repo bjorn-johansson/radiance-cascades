@@ -9,40 +9,46 @@ layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore
 //  10 = 2 = emissive
 //  11 = 3 = transmissive - unused for now
 //the remaining 6 denote material ID: 11111100
-layout(binding = 0) uniform usampler2D uBitmapTexture;              //READ
-layout(binding = 1) uniform sampler2D uMaterialAtlas;               //READ
-layout(binding = 5, rgba32f) uniform writeonly image2D uCascade;   //WRITE
+layout(binding = 0) uniform usampler2D _bitmapTexture;              //READ
+layout(binding = 1) uniform sampler2D _materialAtlas;               //READ
+layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeTextures;   //WRITE
 
 const float PI = 3.14159265359;
 
 const vec3 airAbsorption = vec3(0.05f);
 
-const uint TYPE_MASK = 0x3;
+const uint WALL_MASK = 0x1;
+const uint EMITTER_MASK = 0x2;
 const uint MATERIAL_MASK = 0xFC;
-const bvec4 BLOCKS_RAY = bvec4(false, true, true, false); //TODO: change to bitmasks?
-const bvec4 IS_EMITTER = bvec4(false, false, true, false);//TODO: change to bitmasks?
 
-const int CASCADE_TEXTURE_WIDTH = 256;
-const int PROBE_COUNT = 256;
-const int RAY_COUNT = 256;      //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now as all textures become the same size
-const float RAY_LENGTH = 256;   //const to allow for ray loop unrolling
+const float BASE_RAY_LENGTH = 4;
+
+//these 3 differ between cascade levels.
+const int CASCADE_TEXTURE_WIDTH = 512;
+const int CASCADE_LEVEL = 3;
+const float RAY_LENGTH = sqrt(2) * 1024;   // set to maximum possible length of a ray in the final cascade. based on bitmaps size.
+
+const int PROBE_CLUSTER_SIDE = int(pow(2, CASCADE_LEVEL + 1));
+const int PROBE_COUNT = int(pow(CASCADE_TEXTURE_WIDTH / PROBE_CLUSTER_SIDE, 2));
+
+const int RAY_COUNT = PROBE_CLUSTER_SIDE * PROBE_CLUSTER_SIDE;  //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now 
 const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
-const int PROBE_CLUSTER_SIDE = int(sqrt(RAY_COUNT));
 
 ivec2 CellToTexel(ivec2 cell){
-    return ivec2(cell + textureSize(uBitmapTexture, 0).xy * 0.5f);
+    return ivec2(cell + textureSize(_bitmapTexture, 0).xy * 0.5f);
 }
 
 //DDA raytracing
 void main() {
-    uvec2 id = gl_GlobalInvocationID.xy;
-    vec2 probeCoord = id - id % PROBE_CLUSTER_SIDE;
-    ivec2 bitmapSize = textureSize(uBitmapTexture, 0);
-    vec2 ro = ((vec2(probeCoord) + 0.5) / float(CASCADE_TEXTURE_WIDTH)) * bitmapSize - 0.5 * bitmapSize; // center origin, stretched to cover scene.
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+
+    ivec2 bitmapSize = textureSize(_bitmapTexture, 0);
+    vec2 probeUV = (id - id % PROBE_CLUSTER_SIDE + 0.5f) / float(CASCADE_TEXTURE_WIDTH);
+    vec2 ro = (probeUV - 0.5) * bitmapSize; // center origin, stretched to cover scene.
 
     ivec2 cell = ivec2(floor(ro));
 
-    uint ri = gl_LocalInvocationIndex % RAY_COUNT;
+    uint ri = (id.y % PROBE_CLUSTER_SIDE) * PROBE_CLUSTER_SIDE + (id.x % PROBE_CLUSTER_SIDE);
     float angle = 2.f * PI * ((float(ri) + 0.5f) / RAY_COUNT);
     vec2 rd = vec2(cos(angle), sin(angle));
 
@@ -68,31 +74,27 @@ void main() {
 
     for(int i = 0; i < RAY_STEPS; i++) {
         //get object data of the current cell
-        uint cellData = texelFetch(uBitmapTexture, CellToTexel(cell), 0).r;
-        uint typeID = (cellData & TYPE_MASK);
+        uint cellData = texelFetch(_bitmapTexture, CellToTexel(cell), 0).r;// * uint(max(cell.x, cell.y) < min(bitmapSize.x, bitmapSize.y));
+
         //object bools
-        float blocks = float(BLOCKS_RAY[typeID]);
-        float emits = float(IS_EMITTER[typeID]);
+        float blocks = float((cellData & WALL_MASK) != 0u);
+        float emits = float((cellData & EMITTER_MASK) != 0u);
         float transmits = 1.f - blocks;
 
+        ////get the emissive material. If it isn't emissive set index to 0. should improve cache hits? TODO: try changing this and compare with tracy!
+        //uint matID = (cellData >> 2) * uint(emits);
+        //ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
+        //vec4 material = texelFetch(_materialAtlas, matTexelCoord, 0); //0 vector at indx 0
+        //vec3 emission = material.rgb * material.a;
 
+        vec3 tempEmission = emits * vec3(0.f,1f,1f);
 
-        //get the emissive material. If it isn't emissive set index to 0 to improve cache hits. TODO: try changing this and compare with tracy!
-        uint matID = (cellData >> 2) * uint(emits);
-        ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
-        vec4 material = texelFetch(uMaterialAtlas, matTexelCoord, 0); //0 vector at indx 0
-        vec3 emission = material.rgb * material.a;
-        vec3 tempEmission = emits * vec3(0,1,0) + float(BLOCKS_RAY[typeID] && !IS_EMITTER[typeID]) * vec3(1,0,0);
-        //+ (1-emits) * (1-blocks) * vec3(0,0,1);
-        
-        //red = wall, green = light, blue = empty;
-        
         //gather radiance
-        radiance += rayIsAlive * tempEmission * exp(-airAbsorption * t); //beers law for attenuation
+        radiance += rayIsAlive * tempEmission * exp(-airAbsorption * (t / 100)); //beers law for attenuation
 
 
         //a wall, a light or reaching max distance kills the ray. 
-        rayIsAlive = min(min(rayIsAlive, (1.f - blocks)), float(t < RAY_LENGTH));
+        rayIsAlive *= (1.f - blocks) * (1.f - emits) * sign(RAY_LENGTH - t);
         gotBlocked = max(gotBlocked, blocks);
 
         //advance DDA
@@ -110,8 +112,11 @@ void main() {
 
     }
     //store collected ray data into cascade
-    
+    //radiance *= 0.25f;
+    if(radiance.r > 1.1f)
+    radiance.b = 1.f;
     uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
     vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
-    imageStore(uCascade, ivec2(id), vec4(radiance, 1.0));
+    imageStore(_cascadeTextures, ivec3(id, CASCADE_LEVEL), vec4(radiance, gotBlocked));
+
 }
