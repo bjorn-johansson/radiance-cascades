@@ -46,9 +46,7 @@ void SetupCascade() {
     
 }
 
-/*
- * main(int argc, char* argv[]) - the standard C++ entry point for the program
- */
+
 int main(int, char*[]) {
 
     // Initialise GLFW
@@ -114,10 +112,9 @@ int main(int, char*[]) {
 
 
 
-    const float s = 1.f; //for squashing
+    const float s = 1.f; //scalar for squashing
     //quad for writing to screen:
     float quadVertices[] = {
-        // positions   // texCoords
         -s, -s,    0.f, 0.f,
          s, -s,    1.f, 0.f,
         -s,  s,    0.f, 1.f,
@@ -141,23 +138,11 @@ int main(int, char*[]) {
     glBindVertexArray(0);
     
 
-    //----------------------------------cascade 0 setup---------------------------------------------
-
-    /*
-        setup:
-        * setup bitmap from tga texture - black = empty, green = light, red = wall
-        * setup cascades 0-3, (use 1 file with different preprocessing directives?)
-        
-        runtime passes:
-        1. update bitmap with world information
-        2. cascades
-        3. combine cascades w/ interpolation
-        
-        
-    */
-
-    std::cout << "Bitmap setup.\n";
+    //----------------------------------Scene & Material Setup--------------------------------------
     //this bitmap is the scene. it contains the wall/emissive data that the rays march against.
+    
+    std::cout << "Bitmap setup.\n";
+    
     GLuint bitmapTex;
     glGenTextures(1, &bitmapTex);
     glActiveTexture(GL_TEXTURE0);
@@ -175,7 +160,7 @@ int main(int, char*[]) {
     glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
     
-    Texture worldTex("Textures/SceneTexture.tga");
+    Texture worldTex("Textures/SceneTexture1.tga"); //selects what scene to use
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
     
@@ -189,15 +174,11 @@ int main(int, char*[]) {
 
 
     
-
-    
-    
-
-    
-
-
-    std::cout << "Material atlas setup.\n";
+    //mats are not implemented yet.
     //emissive material atlas. Each texel has a color and a brightness, that's all that materials contain for now.
+    
+    std::cout << "Material atlas setup.\n";
+    
     GLuint materialAtlas;
     glGenTextures(1, &materialAtlas);
     glActiveTexture(GL_TEXTURE1); //binding to texture unit 1
@@ -217,6 +198,9 @@ int main(int, char*[]) {
 
 
 
+
+    //----------------------------------Cascade Setup--------------------------------------
+    
     std::cout << "cascade image array setup.\n";
     GLuint cascadeTextures;
     glGenTextures(1, &cascadeTextures);
@@ -234,7 +218,8 @@ int main(int, char*[]) {
 
     
 
-    //rebind bitmap to TU 0 for sampling. this shouldn't be necessary as bindings are global
+    //rebind bitmap to TU 0 for sampling. this shouldn't be necessary as bindings are global,
+    //but had issues where the binding got lost and the scenetexture was read instead. I will look to remove this later.
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
     
@@ -280,7 +265,9 @@ int main(int, char*[]) {
     glDispatchCompute(64, 64, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
-
+    //-----------------------------------MERGE CASCADES---------------------------------------------
+    //RC is typically memory-bound, so we reuse the textures at the cost of having to merge 1 layer at a time.
+    //this is prime space for profiling and seeing the difference.
     glUseProgram(merge.id());
     glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
     for(int i = 3; i > 0; i--) {
@@ -304,64 +291,40 @@ int main(int, char*[]) {
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         
-        ////-------------------------------GATHER RAYS------------------------------------------------
-        //glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_READ_ONLY, GL_RGBA32F);
+        //-------------------------------GATHER RAYS------------------------------------------------
         //glUseProgram(c0.id());
-        //glDispatchCompute(32, 32, 1);
+        //glDispatchCompute(64, 64, 1);
+    //
         //glUseProgram(c1.id());
-        //glDispatchCompute(32, 32, 1);
+        //glDispatchCompute(64, 64, 1);
+        //
         //glUseProgram(c2.id());
-        //glDispatchCompute(32, 32, 1);
+        //glDispatchCompute(64, 64, 1);
+        //
         //glUseProgram(c3.id());
-        //glDispatchCompute(32, 32, 1);
+        //glDispatchCompute(64, 64, 1);
         //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 //
-        ////-------------------------------MERGE CASCADES---------------------------------------------
-        ////RC is typically memory-bound, so we reuse the textures at the cost of having to merge 1 layer at a time.
-        ////this is prime space for profiling and seeing the difference.
-        //glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_READ_WRITE, GL_RGBA32F);
+        //
+        ////RC is typically memory-bound, so we reuse the textures.
+        ////This is at the cost of having to merge 1 layer at a time.
+        ////- Prime space for profiling and seeing the difference.
         //glUseProgram(merge.id());
         //glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-        //for(int i = 3; i >= 0; i++) {
-        //    glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayer"), i);
-        //    glDispatchCompute(32, 32, 1);
+        //for(int i = 3; i > 0; i--) {
+        //    glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+        //    glDispatchCompute(64, 64, 1);
         //    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
         //}
 
         
-        glUseProgram(c0.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    
-        glUseProgram(c1.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-    
-        glUseProgram(c2.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    
-    
-        glUseProgram(c3.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
-
-        glUseProgram(merge.id());
-        glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-        for(int i = 3; i > 0; i--) {
-            glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
-            glDispatchCompute(64, 64, 1);
-            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-        }
-
+        //-----------------------------Sample Probes and write to screen----------------------------
         
-        //write to screen
         glUseProgram(screenWrite.id());
         glBindVertexArray(quadVAO);
         glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
         glBindVertexArray(0);
+
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame

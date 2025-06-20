@@ -21,7 +21,7 @@ const uint WALL_MASK = 0x1;
 const uint EMITTER_MASK = 0x2;
 const uint MATERIAL_MASK = 0xFC;
 
-const float BASE_RAY_LENGTH = 4;
+const float BASE_RAY_LENGTH = sqrt(2);
 
 //these 3 differ between cascade levels.
 const int CASCADE_TEXTURE_WIDTH = 512;
@@ -46,19 +46,18 @@ void main() {
     ivec2 bitmapSize = textureSize(_bitmapTexture, 0);
     vec2 probeUV = (id - id % PROBE_CLUSTER_SIDE + 0.5f) / float(CASCADE_TEXTURE_WIDTH);
     vec2 ro = (probeUV - 0.5) * bitmapSize; // center origin, stretched to cover scene.
-
     ivec2 cell = ivec2(floor(ro));
-
+    
     uint ri = (id.y % PROBE_CLUSTER_SIDE) * PROBE_CLUSTER_SIDE + (id.x % PROBE_CLUSTER_SIDE);
     float angle = 2.f * PI * ((float(ri) + 0.5f) / RAY_COUNT);
     vec2 rd = vec2(cos(angle), sin(angle));
-
+    
     vec2 roFract = ro - cell;
     ivec2 step = ivec2(sign(rd));
     
     vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x)),
     sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
-    // vec2(1.5f, 1.5f); //diagonals have 1.5f distance between squares
+    // vec2(1.5f, 1.5f); //diagonals have 1.5f distance between squares so this can just be assigned later
     
     // going in the direction of the ray, how far will we travel through each column/row?
     vec2 distToEdge; 
@@ -89,7 +88,7 @@ void main() {
         //vec4 material = texelFetch(_materialAtlas, matTexelCoord, 0); //0 vector at indx 0
         //vec3 emission = material.rgb * material.a;
         
-        vec3 tempEmission = emits * vec3(0.f,1f,1f);
+        vec3 tempEmission = emits * vec3(1f,1f,1f);
         
         //gather radiance
         radiance += rayIsAlive * tempEmission * exp(-airAbsorption * (t / 100)); //beers law for attenuation
@@ -112,15 +111,10 @@ void main() {
 
     }
     //store collected ray data into cascade
-
-    //radiance *= 0.25f;
-    if(radiance.r > 1.1f)
-    radiance.b = 1.f;
+    
     uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
     vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
     imageStore(_cascadeTextures, ivec3(id, CASCADE_LEVEL), vec4(radiance, gotBlocked));
-
-    //imageStore(_cascadeTextures, ivec3(id, CASCADE_LEVEL), vec4(radiance, 1));
 }
 
 

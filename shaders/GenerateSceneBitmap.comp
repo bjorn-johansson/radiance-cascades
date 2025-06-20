@@ -17,11 +17,11 @@ layout(binding = 10) uniform sampler2D _sceneTexture;              //read
 void main() {
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
     ivec2 flip = ivec2(id.x, 1023 - id.y);
-    vec4 tex = texelFetch(_sceneTexture, flip, 0);
+    vec4 tex = texelFetch(_sceneTexture, id, 0);
 
     //red = wall
     //green = emissive
-    //yellow = transmissive
+    //yellow = transmissive, not implemented for now.
     uint data = 0u;
     data += 0x1 * uint(tex.r > 0.5); //wall
     data += 0x2 * uint(tex.g > 0.5); //emitter

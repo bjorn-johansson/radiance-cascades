@@ -17,16 +17,6 @@ const int CASCADE_PROBE_SIDES[4] = { 2, 4, 8, 16 };
 
 
 
-
-int CoordToIndex(ivec2 coord, int width){
-    return coord.y * width + coord.x;
-}
-vec2 ProbeIndexToUV(int index, int width, ivec2 probeID){
-    ivec2 coord = ivec2(index % width, index / width);
-    ivec2 txl = probeID * width + coord;
-    return (txl + 0.5f) / float(CASCADE_TEXTURE_SIDE);
-}
-
 vec4 BilinearWeights(vec2 ratio) {
     return vec4(
     (1.0 - ratio.x) * (1.0 - ratio.y),
@@ -36,16 +26,26 @@ vec4 BilinearWeights(vec2 ratio) {
     );
 }
 
-vec3 SampleProbe(ivec2 probeID, int DirBlockIndex){
-//convert to uv for sampling
-    vec2 srcUV = ProbeIndexToUV(DirBlockIndex,CASCADE_PROBE_SIDES[_sourceLayerIndex] ,probeID);
-    
-    vec3 radiance = vec3(0.f);
-    for(int i = 0; i < CASCADE_SCALING; i++){
-        radiance += texture(_cascadeSamplers, vec3(srcUV.x + UV_TXL_WIDTH * i, srcUV.y, _sourceLayerIndex)).rgb; //merge 4 rays into 1
+int CoordToIndex(ivec2 coord, int width){
+    return coord.y * width + coord.x;
+}
+
+ivec2 ProbeIndexToCoord(int index, int width, ivec2 probeID) {
+    ivec2 coord = ivec2(index % width, index / width);
+    return probeID * width + coord;
+}
+
+vec3 SampleProbe(ivec2 probeID, int DirBlockIndex) {
+    int width = CASCADE_PROBE_SIDES[_sourceLayerIndex];
+    ivec2 baseCoord = ProbeIndexToCoord(DirBlockIndex, width, probeID);
+
+    vec3 radiance = vec3(0.0);
+    for (int i = 0; i < CASCADE_SCALING; i++) {
+        ivec2 fetchCoord = baseCoord + ivec2(i, 0); //groups of 4 indicies will always share y value.
+        radiance += texelFetch(_cascadeSamplers, ivec3(fetchCoord, _sourceLayerIndex), 0).rgb;
     }
     radiance *= 0.25f;
-    
+
     return radiance;
 }
 
