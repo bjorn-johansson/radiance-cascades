@@ -15,44 +15,43 @@ layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeTextures;   
 
 const float PI = 3.14159265359;
 
-const vec3 airAbsorption = vec3(0.05f);
+const float airAbsorption = float(0.05f);
 
 const uint WALL_MASK = 0x1;
 const uint EMITTER_MASK = 0x2;
 const uint MATERIAL_MASK = 0xFC;
 
-const float BASE_RAY_LENGTH = 4;
+const float CASCADE_RAY_LENGTHS[5] = {4.0f, 7.0f, 12.0f, 20.0f, sqrt(2.0f) * 512.0f};
 
-//these 3 differ between cascade levels.
 const int CASCADE_TEXTURE_WIDTH = 512;
-const int CASCADE_LEVEL = 1;
-const float RAY_LENGTH = BASE_RAY_LENGTH * pow(2, CASCADE_LEVEL); //leaving this const instead of uniform to allow for ray loop unrolling
+
+const int CASCADE_LEVEL = 1; //this differs between cascade levels.
 
 const int PROBE_CLUSTER_SIDE = int(pow(2, CASCADE_LEVEL + 1));
 const int PROBE_COUNT = int(pow(CASCADE_TEXTURE_WIDTH / PROBE_CLUSTER_SIDE, 2));
 
+const float RAY_LENGTH = CASCADE_RAY_LENGTHS[CASCADE_LEVEL];   // set to maximum possible length of a ray in the final cascade. based on bitmaps size.
 const int RAY_COUNT = PROBE_CLUSTER_SIDE * PROBE_CLUSTER_SIDE;  //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now 
 const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
 
-ivec2 CellToTexel(ivec2 cell){
-    return ivec2(cell + textureSize(_bitmapTexture, 0).xy * 0.5f);
-}
+
 
 //DDA raytracing
 void main() {
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
 
     ivec2 bitmapSize = textureSize(_bitmapTexture, 0);
-    vec2 probeUV = (id - id % PROBE_CLUSTER_SIDE + 0.5f) / float(CASCADE_TEXTURE_WIDTH);
-    vec2 ro = (probeUV - 0.5) * bitmapSize; // center origin, stretched to cover scene.
-    
+    vec2 bitmapScale = vec2(bitmapSize) / float(CASCADE_TEXTURE_WIDTH);
+    //scale cascade to cover bitmap, place in center of pixel. This means grid isnt perfectly centered on screen, but removes issues of ro between pixels.
+    vec2 po = vec2(id) * bitmapScale + 0.5f;
+
     uint ri = (id.y % PROBE_CLUSTER_SIDE) * PROBE_CLUSTER_SIDE + (id.x % PROBE_CLUSTER_SIDE);
-    float angle = 2.f * PI * ((float(ri) + 0.5f) / RAY_COUNT);
+    float angle = 2f * PI * ((float(ri) + 0.5f) / RAY_COUNT); //+0.5 to shift so half the rays are over 1pi radians
     vec2 rd = vec2(cos(angle), sin(angle));
-    
-    //offset the ray to a ring that starts where the previous cascade ended.
+
+    vec2 ro = po;
     for(int i = 0; i < CASCADE_LEVEL; i++){
-        ro += rd * BASE_RAY_LENGTH * pow(2, i);
+        ro += rd * (CASCADE_RAY_LENGTHS[i] + 1);
     }
     ivec2 cell = ivec2(floor(ro));
     
@@ -74,11 +73,12 @@ void main() {
     float prevDist = 0.f;
     float rayIsAlive = 1.0f;
     float gotBlocked = 0.f; //tells other cascades if this hit a wall
-    float t = 0.f; //total distance traveled
-
+    float t = distance(po, ro);  //total distance traveled
+    float rayMaxDistance = t + RAY_LENGTH;
+    
     for(int i = 0; i < RAY_STEPS; i++) {
         //get object data of the current cell
-        uint cellData = texelFetch(_bitmapTexture, CellToTexel(cell), 0).r * uint(max(cell.x, cell.y) < min(bitmapSize.x, bitmapSize.y));
+        uint cellData = texelFetch(_bitmapTexture, cell, 0).r * uint(max(cell.x, cell.y) < min(bitmapSize.x, bitmapSize.y));
 
         //object bools
         float blocks = float((cellData & WALL_MASK) != 0u);
@@ -94,31 +94,32 @@ void main() {
         vec3 tempEmission = emits * vec3(1f,1f,1f);
 
         //gather radiance
-        radiance += rayIsAlive * tempEmission * exp(-airAbsorption * (t / 100)); //beers law for attenuation
+        vec3 newRad = rayIsAlive * tempEmission * exp(-airAbsorption * (t / 25)); //beers law for attenuation
+        newRad *= float(cell.x >= 0f) * float(cell.y >= 0f)  * float(cell.x < bitmapSize.x) * float(cell.y < bitmapSize.y);
+        radiance += newRad;
 
-        //a wall, a light or reaching max distance kills the ray. 
-        rayIsAlive *= (1.f - blocks) * (1.f - emits) * sign(RAY_LENGTH - t);
+        //a wall, a light or reaching max distance kills the ray.
+        rayIsAlive *= (1.f - blocks) * (1.f - emits) * max(sign(rayMaxDistance - t), 0f);
         gotBlocked = max(gotBlocked, blocks);
-
+        
         //advance DDA
-        float nextDist = min(distToEdge.x, distToEdge.y);
-        t += nextDist - prevDist;
-        prevDist = nextDist;
-
-        int xCloser = int(distToEdge.x < distToEdge.y);
+        int xCloser = int(abs(distToEdge.x) < abs(distToEdge.y));
         int yCloser = 1 - xCloser;
+
+        float nextDist = mix(distToEdge.y, distToEdge.x, float(xCloser));
+
+        t += abs(nextDist - prevDist);
+        prevDist = nextDist;
 
         cell.x += xCloser * step.x;
         distToEdge.x += xCloser * rayUnitStepSize.x;
         cell.y += yCloser * step.y;
         distToEdge.y += yCloser * rayUnitStepSize.y;
 
+
     }
     //store collected ray data into cascade
-    
-    //radiance *= 0.25f;
-    if(radiance.r > 1.1f)
-    radiance.b = 1.f;
+
     uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
     vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
     imageStore(_cascadeTextures, ivec3(id, CASCADE_LEVEL), vec4(radiance, gotBlocked));

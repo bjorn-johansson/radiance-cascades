@@ -34,7 +34,7 @@ double displayFPS(GLFWwindow* window) {
         char title[201];
         // convert fps to milliseconds
         double frametime = (fps > 0.0) ? 1000.0 / fps : 0.0;
-        snprintf(title, 200, "TNM046: %.2f ms/frame (%.1f FPS)", frametime, fps);
+        snprintf(title, 200, "RC Project: %.2f ms/frame (%.1f FPS)", frametime, fps);
         glfwSetWindowTitle(window, title);
     }
 

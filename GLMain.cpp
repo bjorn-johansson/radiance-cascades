@@ -65,7 +65,7 @@ int main(int, char*[]) {
 
     // Open a square window (aspect 1:1) to fill half the screen height
     GLFWwindow* window =
-        glfwCreateWindow(1080, 1080, "GLprimer", nullptr, nullptr);
+        glfwCreateWindow(1024, 1024, "GLprimer", nullptr, nullptr);
     if (!window) {
         std::cout << "Unable to open window. Terminating.\n";
         glfwTerminate();  // No window was opened, so we can't continue in any useful way
@@ -160,7 +160,7 @@ int main(int, char*[]) {
     glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
     
-    Texture worldTex("Textures/SceneTexture1.tga"); //selects what scene to use
+    Texture worldTex("Textures/CenterDot.tga"); //selects what scene to use
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
     
@@ -207,7 +207,7 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE2); //binding to texture unit 2
     glBindTexture(GL_TEXTURE_2D_ARRAY, cascadeTextures);
     
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 4);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 5);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -242,6 +242,11 @@ int main(int, char*[]) {
     Shader c3("shaders/cascade3.comp");
     glUseProgram(c3.id());
     glUniform1i(glGetUniformLocation(c3.id(), "_bitmapTexture"), 0);
+    std::cout << "cascade 4 setup.\n";
+    
+    Shader c4("shaders/cascade4.comp");
+    glUseProgram(c4.id());
+    glUniform1i(glGetUniformLocation(c4.id(), "_bitmapTexture"), 0);
 
     std::cout << "merge setup.\n";
     Shader merge("shaders/MergeCascades.comp");
@@ -264,14 +269,19 @@ int main(int, char*[]) {
     glUseProgram(c3.id());
     glDispatchCompute(64, 64, 1);
     glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+    
+    glUseProgram(c4.id());
+    glDispatchCompute(64, 64, 1);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     //-----------------------------------MERGE CASCADES---------------------------------------------
     //RC is typically memory-bound, so we reuse the textures at the cost of having to merge 1 layer at a time.
     //this is prime space for profiling and seeing the difference.
     glUseProgram(merge.id());
     glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-    for(int i = 3; i > 0; i--) {
-        glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+    GLint _sourceLaterIndexLoc = glGetUniformLocation(merge.id(), "_sourceLayerIndex");
+    for(int i = 4; i > 0; i--) {
+        glUniform1i(_sourceLaterIndexLoc, i);
         glDispatchCompute(64, 64, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     }
@@ -292,30 +302,33 @@ int main(int, char*[]) {
         
         
         //-------------------------------GATHER RAYS------------------------------------------------
-        //glUseProgram(c0.id());
-        //glDispatchCompute(64, 64, 1);
-    //
-        //glUseProgram(c1.id());
-        //glDispatchCompute(64, 64, 1);
-        //
-        //glUseProgram(c2.id());
-        //glDispatchCompute(64, 64, 1);
-        //
-        //glUseProgram(c3.id());
-        //glDispatchCompute(64, 64, 1);
-        //glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-//
-        //
-        ////RC is typically memory-bound, so we reuse the textures.
-        ////This is at the cost of having to merge 1 layer at a time.
-        ////- Prime space for profiling and seeing the difference.
-        //glUseProgram(merge.id());
-        //glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-        //for(int i = 3; i > 0; i--) {
-        //    glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
-        //    glDispatchCompute(64, 64, 1);
-        //    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-        //}
+        glUseProgram(c0.id());
+        glDispatchCompute(64, 64, 1);
+    
+        glUseProgram(c1.id());
+        glDispatchCompute(64, 64, 1);
+        
+        glUseProgram(c2.id());
+        glDispatchCompute(64, 64, 1);
+        
+        glUseProgram(c3.id());
+        glDispatchCompute(64, 64, 1);
+
+        glUseProgram(c4.id());
+        glDispatchCompute(64, 64, 1);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+
+        
+        //RC is typically memory-bound, so we reuse the textures.
+        //This is at the cost of having to merge 1 layer at a time.
+        //- Prime space for profiling and seeing the difference.
+        glUseProgram(merge.id());
+        glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+        for(int i = 4; i > 0; i--) {
+            glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+            glDispatchCompute(64, 64, 1);
+            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+        }
 
         
         //-----------------------------Sample Probes and write to screen----------------------------

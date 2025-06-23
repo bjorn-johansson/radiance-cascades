@@ -9,11 +9,10 @@ layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //wr
 uniform int _sourceLayerIndex;
 
 const int CASCADE_TEXTURE_SIDE = 512;
-const int SCREEN_TEXTURE_SIDE = 1024;
 const float UV_TXL_WIDTH = 1.f / 256.f;
 const int CASCADE_SCALING = 4;
 
-const int CASCADE_PROBE_SIDES[4] = { 2, 4, 8, 16 };
+const int CASCADE_PROBE_SIDES[5] = { 2, 4, 8, 16, 32};
 
 
 
@@ -53,13 +52,13 @@ void main() {
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
     
     ivec2 tgtCoordInProbe = id % CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
-    
+
     //directional index inside the probe that we are writing to
     int tgtDirIndex = CoordToIndex(tgtCoordInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
     //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
     int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
     
-    vec2 srcProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]);
+    vec2 srcProbeGridCoord = vec2(id) / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]) - 0.5f;
     ivec2 base = ivec2(floor(srcProbeGridCoord));
     vec2 frac = fract(srcProbeGridCoord);
     vec4 weight = BilinearWeights(frac);
@@ -70,17 +69,32 @@ void main() {
     vec3 P00 = SampleProbe(base, srcIndexBlock);
     vec3 P10 = SampleProbe(base + ivec2(1, 0), srcIndexBlock);
     vec3 P01 = SampleProbe(base + ivec2(0, 1), srcIndexBlock);
-    vec3 P11 = SampleProbe(base + 1, srcIndexBlock);
+    vec3 P11 = SampleProbe(base + ivec2(1, 1), srcIndexBlock);
     
-    vec3 result =   
+    vec3 result = 
     P00 * weight.x +
     P10 * weight.y + 
     P01 * weight.z + 
     P11 * weight.w;
-    
-    vec4 targetCol = texture(_cascadeSamplers, vec3((id + 0.5f) / float(CASCADE_TEXTURE_SIDE), _sourceLayerIndex - 1));
+
+    vec4 targetCol = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex - 1), 0);
     result *= (1.f - targetCol.a); //did we get blocked in the lower cascade?
     result += targetCol.rgb;
+    
     imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
+    return;
+
+    vec2 uv = id % CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1] / float(CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1]);
+    uv /= 2;
+    if(targetCol.r < -0.5 || targetCol.g < -0.5 || targetCol.b < -0.5)
+    {
+        uv *= 0;
+        targetCol *= 0;
+        //targetCol.b = 1f;
+    }
+    if(_sourceLayerIndex == 3)
+        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(uv + targetCol.rg, targetCol.b, targetCol.a));
+    
+    
 }
 
