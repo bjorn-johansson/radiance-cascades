@@ -279,6 +279,9 @@ int main(int, char*[]) {
     //this is prime space for profiling and seeing the difference.
     glUseProgram(merge.id());
     glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+    GLint mergeLoc = glGetUniformLocation(merge.id(), "_Merge");
+    glUniform1i(mergeLoc, 1);
+    bool applyMerge = true;
     GLint _sourceLaterIndexLoc = glGetUniformLocation(merge.id(), "_sourceLayerIndex");
     for(int i = 4; i > 0; i--) {
         glUniform1i(_sourceLaterIndexLoc, i);
@@ -286,12 +289,21 @@ int main(int, char*[]) {
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     }
 
-
-
+    
     
     //setup simple write to screen
     Shader screenWrite("shaders/ScreenWrite.vert", "shaders/ScreenWrite.frag");
-    
+    glUseProgram(screenWrite.id());
+    GLint swLayerLoc = glGetUniformLocation(screenWrite.id(), "_Layer");
+    glUniform1i(swLayerLoc, 0);
+    GLint swInterpLoc = glGetUniformLocation(screenWrite.id(), "_Interpolate");
+    glUniform1i(swInterpLoc, 1);
+    bool interpolate = true;
+    GLint swUVLoc = glGetUniformLocation(screenWrite.id(), "_ProbeUV");
+    glUniform1i(swUVLoc, 0);
+    bool probeUV = false;
+    int inputPauseTime = 150;
+    int timePaused = 0;
     // Main loop
     while (!glfwWindowShouldClose(window)) {
         ZoneScoped;
@@ -348,6 +360,57 @@ int main(int, char*[]) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, GL_TRUE);
         }
+
+        if(timePaused != 0) {
+            if(timePaused >= inputPauseTime) {
+                timePaused = 0;
+            }else timePaused++;
+        }else {
+            if (glfwGetKey(window, GLFW_KEY_SPACE)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swInterpLoc, static_cast<int>(interpolate));
+                interpolate = !interpolate;
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_U)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swUVLoc, static_cast<int>(probeUV));
+                probeUV = !probeUV;
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_M)) {
+                glUseProgram(merge.id());
+                glUniform1i(mergeLoc, static_cast<int>(applyMerge));
+                applyMerge = !applyMerge;
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_0)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 0);
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_1)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 1);
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_2)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 2);
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_3)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 3);
+                timePaused++;
+            }
+            if (glfwGetKey(window, GLFW_KEY_4)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 4);
+                timePaused++;
+            }
+        }
+                
         FrameMark; // Marks the end of a frame for Tracy
     }
 

@@ -7,12 +7,12 @@ layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
 layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
 
 uniform int _sourceLayerIndex;
+uniform int _Merge;
 
 const int CASCADE_TEXTURE_SIDE = 512;
-const float UV_TXL_WIDTH = 1.f / 256.f;
 const int CASCADE_SCALING = 4;
 
-const int CASCADE_PROBE_SIDES[5] = { 2, 4, 8, 16, 32};
+const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
 
 
@@ -52,13 +52,14 @@ void main() {
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
     
     ivec2 tgtCoordInProbe = id % CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
+    vec2 tgtProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
 
     //directional index inside the probe that we are writing to
     int tgtDirIndex = CoordToIndex(tgtCoordInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
     //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
     int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
-    
-    vec2 srcProbeGridCoord = vec2(id) / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]) - 0.5f;
+
+    vec2 srcProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]) -vec2(0.5f);
     ivec2 base = ivec2(floor(srcProbeGridCoord));
     vec2 frac = fract(srcProbeGridCoord);
     vec4 weight = BilinearWeights(frac);
@@ -66,6 +67,7 @@ void main() {
     int srcProbeGridSide = CASCADE_TEXTURE_SIDE / CASCADE_PROBE_SIDES[_sourceLayerIndex];
     base = clamp(base, ivec2(0), ivec2(srcProbeGridSide - 2));
     
+    int dir = (_sourceLayerIndex % 2) * -2 + 1;
     vec3 P00 = SampleProbe(base, srcIndexBlock);
     vec3 P10 = SampleProbe(base + ivec2(1, 0), srcIndexBlock);
     vec3 P01 = SampleProbe(base + ivec2(0, 1), srcIndexBlock);
@@ -80,8 +82,8 @@ void main() {
     vec4 targetCol = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex - 1), 0);
     result *= (1.f - targetCol.a); //did we get blocked in the lower cascade?
     result += targetCol.rgb;
-    
-    imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
+    if (_Merge == 1)
+        imageStore(_cascadeImages, ivec3( id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
     return;
 
     vec2 uv = id % CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1] / float(CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1]);
