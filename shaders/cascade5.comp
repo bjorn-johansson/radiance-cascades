@@ -21,11 +21,11 @@ const uint WALL_MASK = 0x1;
 const uint EMITTER_MASK = 0x2;
 const uint MATERIAL_MASK = 0xFC;
 
-const float CASCADE_RAY_LENGTHS[5] = {4.0f, 7.0f, 12.0f, 20.0f, sqrt(2.0f) * 512.0f};
+const float CASCADE_RAY_LENGTHS[7] = {4f, 7f, 12f, 20f, 36f, 64f, sqrt(2.0f) * 512.0f};
 
 const int CASCADE_TEXTURE_WIDTH = 512;
 
-const int CASCADE_LEVEL = 4; //this differs between cascade levels.
+const int CASCADE_LEVEL = 5; //this differs between cascade levels.
 
 const int PROBE_CLUSTER_SIDE = int(pow(2, CASCADE_LEVEL + 1));
 const int PROBE_COUNT = int(pow(CASCADE_TEXTURE_WIDTH / PROBE_CLUSTER_SIDE, 2));
@@ -78,8 +78,10 @@ void main() {
     
     for(int i = 0; i < RAY_STEPS; i++) {
         //get object data of the current cell
-        uint cellData = texelFetch(_bitmapTexture, cell, 0).r;// * uint(max(cell.x, cell.y) < min(bitmapSize.x, bitmapSize.y));
-
+        uint cellData = texelFetch(_bitmapTexture, cell, 0).r;
+        cellData *= uint(max(cell.x, cell.y) < min(bitmapSize.x, bitmapSize.y));
+        cellData *= uint(min(cell.x, cell.y) >= 0);
+        
         //object bools
         float blocks = float((cellData & WALL_MASK) != 0u);
         float emits = float((cellData & EMITTER_MASK) != 0u);

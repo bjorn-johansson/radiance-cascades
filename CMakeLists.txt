@@ -40,6 +40,7 @@ set(SOURCE_FILES
 )
 
 set(SHADER_FILES
+    shaders/cascade.comp
     shaders/cascade0.comp
     shaders/cascade1.comp
     shaders/cascade2.comp

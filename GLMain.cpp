@@ -160,7 +160,7 @@ int main(int, char*[]) {
     glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
     
-    Texture worldTex("Textures/CenterDot.tga"); //selects what scene to use
+    Texture worldTex("Textures/penumbraTest.tga"); //selects what scene to use
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
     
@@ -207,7 +207,7 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE2); //binding to texture unit 2
     glBindTexture(GL_TEXTURE_2D_ARRAY, cascadeTextures);
     
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 5);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 7);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -222,134 +222,110 @@ int main(int, char*[]) {
     //but had issues where the binding got lost and the scenetexture was read instead. I will look to remove this later.
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
-    
-    std::cout << "cascade 0 setup.\n";
-    Shader c0("shaders/cascade0.comp");
-    glUseProgram(c0.id());
-    glUniform1i(glGetUniformLocation(c0.id(), "_bitmapTexture"), 0);
-    
-    std::cout << "cascade 1 setup.\n";
-    Shader c1("shaders/cascade1.comp");
-    glUseProgram(c1.id());
-    glUniform1i(glGetUniformLocation(c1.id(), "_bitmapTexture"), 0);
-    
-    std::cout << "cascade 2 setup.\n";
-    Shader c2("shaders/cascade2.comp");
-    glUseProgram(c2.id());
-    glUniform1i(glGetUniformLocation(c2.id(), "_bitmapTexture"), 0);
-    
-    std::cout << "cascade 3 setup.\n";
-    Shader c3("shaders/cascade3.comp");
-    glUseProgram(c3.id());
-    glUniform1i(glGetUniformLocation(c3.id(), "_bitmapTexture"), 0);
-    std::cout << "cascade 4 setup.\n";
-    
-    Shader c4("shaders/cascade4.comp");
-    glUseProgram(c4.id());
-    glUniform1i(glGetUniformLocation(c4.id(), "_bitmapTexture"), 0);
 
-    std::cout << "merge setup.\n";
-    Shader merge("shaders/MergeCascades.comp");
+    constexpr int CASCADE_COUNT = 7;
+    Shader cascades[CASCADE_COUNT] = {
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+        Shader("shaders/cascade.comp"),
+    };
+    
+    for(int i = 0; i < CASCADE_COUNT; i++) {
+        glUseProgram(cascades[i].id());
+        glUniform1i(glGetUniformLocation(cascades[i].id(), "_bitmapTexture"), 0);
+        glUniform1i(glGetUniformLocation(cascades[i].id(), "_CascadeLevel"), i);
+    }
     
     
-    glUseProgram(c0.id());
-    glDispatchCompute(64, 64, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    
-    glUseProgram(c1.id());
-    glDispatchCompute(64, 64, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
 
     
-    glUseProgram(c2.id());
-    glDispatchCompute(64, 64, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    
-    
-    glUseProgram(c3.id());
-    glDispatchCompute(64, 64, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-    
-    glUseProgram(c4.id());
-    glDispatchCompute(64, 64, 1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
-
     //-----------------------------------MERGE CASCADES---------------------------------------------
     //RC is typically memory-bound, so we reuse the textures at the cost of having to merge 1 layer at a time.
     //this is prime space for profiling and seeing the difference.
+    std::cout << "merge setup.\n";
+    Shader merge("shaders/MergeCascades.comp");
+    
     glUseProgram(merge.id());
     glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
     GLint mergeLoc = glGetUniformLocation(merge.id(), "_Merge");
     glUniform1i(mergeLoc, 1);
-    bool applyMerge = true;
+
     GLint _sourceLaterIndexLoc = glGetUniformLocation(merge.id(), "_sourceLayerIndex");
-    for(int i = 4; i > 0; i--) {
+    for(int i = 6; i > 0; i--) {
         glUniform1i(_sourceLaterIndexLoc, i);
         glDispatchCompute(64, 64, 1);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
     }
 
+
+    //-----------------------------------WRITE TO SCREEN--------------------------------------------  
     
-    
-    //setup simple write to screen
+
     Shader screenWrite("shaders/ScreenWrite.vert", "shaders/ScreenWrite.frag");
     glUseProgram(screenWrite.id());
     GLint swLayerLoc = glGetUniformLocation(screenWrite.id(), "_Layer");
     glUniform1i(swLayerLoc, 0);
     GLint swInterpLoc = glGetUniformLocation(screenWrite.id(), "_Interpolate");
     glUniform1i(swInterpLoc, 1);
-    bool interpolate = true;
     GLint swUVLoc = glGetUniformLocation(screenWrite.id(), "_ProbeUV");
     glUniform1i(swUVLoc, 0);
+
+    bool applyMerge = true;
+    bool interpolate = true;
     bool probeUV = false;
+    int highestLayer = 6;
+    
+    int defaultInputPauseTime = 1000;
     int inputPauseTime = 150;
     int timePaused = 0;
-    // Main loop
+
+    
+    
+    //----------------------------------------MAIN LOOP---------------------------------------------
+    
     while (!glfwWindowShouldClose(window)) {
         ZoneScoped;
         // Set the clear color to a dark gray (RGBA)
         glClearColor(0.3f, 0.3f, 0.3f, 0.0f);
         // Clear the color and depth buffers for drawing
-        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         
         
-        //-------------------------------GATHER RAYS------------------------------------------------
-        glUseProgram(c0.id());
-        glDispatchCompute(64, 64, 1);
-    
-        glUseProgram(c1.id());
-        glDispatchCompute(64, 64, 1);
+        if (glfwGetKey(window, GLFW_KEY_SPACE)) {
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+            //-------------------------------GATHER RAYS------------------------------------------------
         
-        glUseProgram(c2.id());
-        glDispatchCompute(64, 64, 1);
-        
-        glUseProgram(c3.id());
-        glDispatchCompute(64, 64, 1);
-
-        glUseProgram(c4.id());
-        glDispatchCompute(64, 64, 1);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            for(int i = 0; i < CASCADE_COUNT; i++) {
+                glUseProgram(cascades[i].id());
+                glDispatchCompute(64, 64, 1);
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+            }
 
         
-        //RC is typically memory-bound, so we reuse the textures.
-        //This is at the cost of having to merge 1 layer at a time.
-        //- Prime space for profiling and seeing the difference.
-        glUseProgram(merge.id());
-        glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-        for(int i = 4; i > 0; i--) {
-            glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
-            glDispatchCompute(64, 64, 1);
-            glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+            //RC is typically memory-bound, so i reuse the textures.
+            //- Prime space for profiling and seeing the difference.
+            glUseProgram(merge.id());
+            glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+            for(int i = highestLayer; i > 0; i--) {
+                glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+                glDispatchCompute(64, 64, 1);
+                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+            }
+
+        
+            //-----------------------------Sample Probes and write to screen----------------------------
+        
+            glUseProgram(screenWrite.id());
+            glBindVertexArray(quadVAO);
+            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+            glBindVertexArray(0);
         }
 
-        
-        //-----------------------------Sample Probes and write to screen----------------------------
-        
-        glUseProgram(screenWrite.id());
-        glBindVertexArray(quadVAO);
-        glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-        glBindVertexArray(0);
 
+            
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame
@@ -360,13 +336,13 @@ int main(int, char*[]) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, GL_TRUE);
         }
-
+            
         if(timePaused != 0) {
             if(timePaused >= inputPauseTime) {
                 timePaused = 0;
             }else timePaused++;
         }else {
-            if (glfwGetKey(window, GLFW_KEY_SPACE)) {
+            if (glfwGetKey(window, GLFW_KEY_I)) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swInterpLoc, static_cast<int>(interpolate));
                 interpolate = !interpolate;
@@ -388,26 +364,55 @@ int main(int, char*[]) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swLayerLoc, 0);
                 timePaused++;
+                inputPauseTime = defaultInputPauseTime;
             }
             if (glfwGetKey(window, GLFW_KEY_1)) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swLayerLoc, 1);
                 timePaused++;
+                inputPauseTime = defaultInputPauseTime;
             }
             if (glfwGetKey(window, GLFW_KEY_2)) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swLayerLoc, 2);
                 timePaused++;
+                inputPauseTime = defaultInputPauseTime;
             }
             if (glfwGetKey(window, GLFW_KEY_3)) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swLayerLoc, 3);
                 timePaused++;
+                inputPauseTime = defaultInputPauseTime;
             }
             if (glfwGetKey(window, GLFW_KEY_4)) {
                 glUseProgram(screenWrite.id());
                 glUniform1i(swLayerLoc, 4);
                 timePaused++;
+                inputPauseTime = defaultInputPauseTime;
+            }
+            if (glfwGetKey(window, GLFW_KEY_5)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 5);
+                timePaused++;
+                inputPauseTime = defaultInputPauseTime;
+            }
+            if (glfwGetKey(window, GLFW_KEY_6)) {
+                glUseProgram(screenWrite.id());
+                glUniform1i(swLayerLoc, 6);
+                timePaused++;
+                inputPauseTime = defaultInputPauseTime;
+            }
+            if(glfwGetKey(window, GLFW_KEY_F1)) {
+                if(highestLayer > 0)
+                    highestLayer--;
+                timePaused++;
+                inputPauseTime = defaultInputPauseTime;
+            }
+            if(glfwGetKey(window, GLFW_KEY_F2)) {
+                if(highestLayer < 6)
+                    highestLayer++;
+                timePaused++;
+                inputPauseTime = defaultInputPauseTime;
             }
         }
                 

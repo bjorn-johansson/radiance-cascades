@@ -14,7 +14,11 @@ const int CASCADE_SCALING = 4;
 
 const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
-
+//the 4 possible weights when doing grid bilinear merging, results in a slightly square look so can be altered to smooth it out
+const vec4 weights[2][2] = vec4[2][2](
+    vec4[2](vec4(0.5625, 0.1875, 0.1875, 0.0625), vec4(0.1875, 0.5625, 0.0625, 0.1875)),
+    vec4[2](vec4(0.1875, 0.0625, 0.5625, 0.1875), vec4(0.0625, 0.1875, 0.1875, 0.5625))
+);
 
 vec4 BilinearWeights(vec2 ratio) {
     return vec4(
@@ -35,13 +39,23 @@ ivec2 ProbeIndexToCoord(int index, int width, ivec2 probeID) {
 }
 
 vec3 SampleProbe(ivec2 probeID, int DirBlockIndex) {
+
+    ivec2 gridExtent = ivec2(CASCADE_TEXTURE_SIDE / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]));
+    if (any(lessThanEqual(probeID, ivec2(-1))) || any(greaterThanEqual(probeID, gridExtent))) {    //todo: fix branching?
+        return vec3(0,0,0);
+    }
+
     int width = CASCADE_PROBE_SIDES[_sourceLayerIndex];
     ivec2 baseCoord = ProbeIndexToCoord(DirBlockIndex, width, probeID);
+    
 
     vec3 radiance = vec3(0.0);
     for (int i = 0; i < CASCADE_SCALING; i++) {
         ivec2 fetchCoord = baseCoord + ivec2(i, 0); //groups of 4 indicies will always share y value.
-        radiance += texelFetch(_cascadeSamplers, ivec3(fetchCoord, _sourceLayerIndex), 0).rgb;
+        //float valid = float(min(fetchCoord.x, fetchCoord.y) >= 0 &&   max(fetchCoord.x, fetchCoord.y) < CASCADE_TEXTURE_SIDE); //TODO: delete?
+        vec4 col = texelFetch(_cascadeSamplers, ivec3(fetchCoord, _sourceLayerIndex), 0);
+        radiance += col.rgb * (1f - col.a);
+        
     }
     radiance *= 0.25f;
 
@@ -49,25 +63,39 @@ vec3 SampleProbe(ivec2 probeID, int DirBlockIndex) {
 }
 
 void main() {
+    const int TARGET_PROBE_SIDE = CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
+    const int SOURCE_PROBE_SIDE = CASCADE_PROBE_SIDES[_sourceLayerIndex];
     ivec2 id = ivec2(gl_GlobalInvocationID.xy);
     
-    ivec2 tgtCoordInProbe = id % CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
-    vec2 tgtProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
-
-    //directional index inside the probe that we are writing to
-    int tgtDirIndex = CoordToIndex(tgtCoordInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
+    vec4 targetCol = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex - 1), 0);
+    if(targetCol.a > 0){
+        //imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex ), vec4(0, 0, 0, 1));
+        //return;
+    }
+    
+    vec2 sourceProbeCoord = id / float(SOURCE_PROBE_SIDE);     //which source probe the target probe belongs to
+    ivec2 base = ivec2(floor(sourceProbeCoord));
+    
+    //shift the source probe coords to be the 4 source probes which centers are the closest to the center of the target probe.
+    //imagine a source probe that contains a 2x2 block of target probes. we select our 4 probes in the direction of the target probe from the sources center.
+    ivec2 offset = ivec2(1,1) - ivec2(floor((sourceProbeCoord - base) * 2)); //TL:1,1   BR:0,0
+    base.x -= offset.x;
+    base.y -= offset.y;
+    
+    vec4 weight = weights[offset.y][offset.x];
+    
+    //base = ivec2(floor(sourceProbeCoord));
+    //vec2 frac = fract(sourceProbeCoord);
+    //weight = BilinearWeights(frac);
+    
+    
+    //texel coord in the probe were writing to
+    ivec2 targetTexelInProbe = id % TARGET_PROBE_SIDE;  
+    //convert to directional index inside the probe that we are writing to
+    int tgtDirIndex = CoordToIndex(targetTexelInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
     //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
     int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
-
-    vec2 srcProbeGridCoord = id / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]) -vec2(0.5f);
-    ivec2 base = ivec2(floor(srcProbeGridCoord));
-    vec2 frac = fract(srcProbeGridCoord);
-    vec4 weight = BilinearWeights(frac);
     
-    int srcProbeGridSide = CASCADE_TEXTURE_SIDE / CASCADE_PROBE_SIDES[_sourceLayerIndex];
-    base = clamp(base, ivec2(0), ivec2(srcProbeGridSide - 2));
-    
-    int dir = (_sourceLayerIndex % 2) * -2 + 1;
     vec3 P00 = SampleProbe(base, srcIndexBlock);
     vec3 P10 = SampleProbe(base + ivec2(1, 0), srcIndexBlock);
     vec3 P01 = SampleProbe(base + ivec2(0, 1), srcIndexBlock);
@@ -78,25 +106,15 @@ void main() {
     P10 * weight.y + 
     P01 * weight.z + 
     P11 * weight.w;
+    
+    result.rgb += targetCol.rgb;
 
-    vec4 targetCol = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex - 1), 0);
-    result *= (1.f - targetCol.a); //did we get blocked in the lower cascade?
-    result += targetCol.rgb;
     if (_Merge == 1)
-        imageStore(_cascadeImages, ivec3( id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
-    return;
-
-    vec2 uv = id % CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1] / float(CASCADE_PROBE_SIDES[ _sourceLayerIndex - 1]);
-    uv /= 2;
-    if(targetCol.r < -0.5 || targetCol.g < -0.5 || targetCol.b < -0.5)
-    {
-        uv *= 0;
-        targetCol *= 0;
-        //targetCol.b = 1f;
+        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
+    else {
+        result = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex), 0).rgb; 
+        result += targetCol.rgb;
+        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex-1), vec4(result, targetCol.a));
     }
-    if(_sourceLayerIndex == 3)
-        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(uv + targetCol.rg, targetCol.b, targetCol.a));
-    
-    
 }
 
