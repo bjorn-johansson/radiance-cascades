@@ -1,7 +1,7 @@
 ﻿
 #version 430 core
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
 
 layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
 layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
@@ -9,7 +9,7 @@ layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //wr
 uniform int _sourceLayerIndex;
 uniform int _Merge;
 
-const int CASCADE_TEXTURE_SIDE = 512;
+const int CASCADE_TEXTURE_SIDE = 1024;
 const int CASCADE_SCALING = 4;
 
 const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
@@ -52,10 +52,8 @@ vec3 SampleProbe(ivec2 probeID, int DirBlockIndex) {
     vec3 radiance = vec3(0.0);
     for (int i = 0; i < CASCADE_SCALING; i++) {
         ivec2 fetchCoord = baseCoord + ivec2(i, 0); //groups of 4 indicies will always share y value.
-        //float valid = float(min(fetchCoord.x, fetchCoord.y) >= 0 &&   max(fetchCoord.x, fetchCoord.y) < CASCADE_TEXTURE_SIDE); //TODO: delete?
         vec4 col = texelFetch(_cascadeSamplers, ivec3(fetchCoord, _sourceLayerIndex), 0);
         radiance += col.rgb * (1f - col.a);
-        
     }
     radiance *= 0.25f;
 
@@ -70,24 +68,19 @@ void main() {
     vec4 targetCol = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex - 1), 0);
     if(targetCol.a > 0){
         //imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex ), vec4(0, 0, 0, 1));
-        //return;
+        return;
     }
     
     vec2 sourceProbeCoord = id / float(SOURCE_PROBE_SIDE);     //which source probe the target probe belongs to
-    ivec2 base = ivec2(floor(sourceProbeCoord));
+    ivec2 baseID = ivec2(floor(sourceProbeCoord));
     
     //shift the source probe coords to be the 4 source probes which centers are the closest to the center of the target probe.
     //imagine a source probe that contains a 2x2 block of target probes. we select our 4 probes in the direction of the target probe from the sources center.
-    ivec2 offset = ivec2(1,1) - ivec2(floor((sourceProbeCoord - base) * 2)); //TL:1,1   BR:0,0
-    base.x -= offset.x;
-    base.y -= offset.y;
+    ivec2 offset = ivec2(1,1) - ivec2(floor((sourceProbeCoord - baseID) * 2)); //TL:1,1   BR:0,0
+    baseID.x -= offset.x;
+    baseID.y -= offset.y;
     
     vec4 weight = weights[offset.y][offset.x];
-    
-    //base = ivec2(floor(sourceProbeCoord));
-    //vec2 frac = fract(sourceProbeCoord);
-    //weight = BilinearWeights(frac);
-    
     
     //texel coord in the probe were writing to
     ivec2 targetTexelInProbe = id % TARGET_PROBE_SIDE;  
@@ -96,10 +89,10 @@ void main() {
     //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
     int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
     
-    vec3 P00 = SampleProbe(base, srcIndexBlock);
-    vec3 P10 = SampleProbe(base + ivec2(1, 0), srcIndexBlock);
-    vec3 P01 = SampleProbe(base + ivec2(0, 1), srcIndexBlock);
-    vec3 P11 = SampleProbe(base + ivec2(1, 1), srcIndexBlock);
+    vec3 P00 = SampleProbe(baseID, srcIndexBlock);
+    vec3 P10 = SampleProbe(baseID + ivec2(1, 0), srcIndexBlock);
+    vec3 P01 = SampleProbe(baseID + ivec2(0, 1), srcIndexBlock);
+    vec3 P11 = SampleProbe(baseID + ivec2(1, 1), srcIndexBlock);
     
     vec3 result = 
     P00 * weight.x +
@@ -107,14 +100,22 @@ void main() {
     P01 * weight.z + 
     P11 * weight.w;
     
-    result.rgb += targetCol.rgb;
+    result += targetCol.rgb;
 
     if (_Merge == 1)
         imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex - 1), vec4(result, targetCol.a));
     else {
-        result = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex), 0).rgb; 
-        result += targetCol.rgb;
-        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex-1), vec4(result, targetCol.a));
+       result = texelFetch(_cascadeSamplers, ivec3(id, _sourceLayerIndex), 0).rgb; 
+       result += targetCol.rgb;
+       imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex-1), vec4(result, targetCol.a));
     }
 }
 
+/*
+old merge
+    //base = ivec2(floor(sourceProbeCoord));
+    //vec2 frac = fract(sourceProbeCoord);
+    //weight = BilinearWeights(frac);
+
+
+*/

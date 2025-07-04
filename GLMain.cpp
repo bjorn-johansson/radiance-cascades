@@ -42,10 +42,14 @@
 #include "Texture.hpp"
 #include "Tracy.hpp"
 
-void SetupCascade() {
-    
+int rayLengthMultiplier = 1;
+void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
+{
+    rayLengthMultiplier += yoffset;
+    if(rayLengthMultiplier < 1) rayLengthMultiplier = 1;
+    if (rayLengthMultiplier > 200) rayLengthMultiplier = 200;
+    std::cout << "mod: " << rayLengthMultiplier <<"\n";
 }
-
 
 int main(int, char*[]) {
 
@@ -160,7 +164,7 @@ int main(int, char*[]) {
     glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
     
-    Texture worldTex("Textures/penumbraTest.tga"); //selects what scene to use
+    Texture worldTex("Textures/SceneTexture1.tga"); //selects what scene to use
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
     
@@ -207,7 +211,7 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE2); //binding to texture unit 2
     glBindTexture(GL_TEXTURE_2D_ARRAY, cascadeTextures);
     
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 512, 512, 7);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 1024, 1024, 7);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -233,11 +237,14 @@ int main(int, char*[]) {
         Shader("shaders/cascade.comp"),
         Shader("shaders/cascade.comp"),
     };
-    
+
+    GLint rayLMLoc[7];
     for(int i = 0; i < CASCADE_COUNT; i++) {
         glUseProgram(cascades[i].id());
         glUniform1i(glGetUniformLocation(cascades[i].id(), "_bitmapTexture"), 0);
         glUniform1i(glGetUniformLocation(cascades[i].id(), "_CascadeLevel"), i);
+        rayLMLoc[i] = glGetUniformLocation(cascades[i].id(), "_RayLengthMultiplier");
+        glUniform1i(rayLMLoc[i], rayLengthMultiplier);
     }
     
     
@@ -292,7 +299,7 @@ int main(int, char*[]) {
         // Set the clear color to a dark gray (RGBA)
         glClearColor(0.3f, 0.3f, 0.3f, 0.0f);
         // Clear the color and depth buffers for drawing
-        
+        glfwSetScrollCallback(window, ScrollCallback);
         
         if (glfwGetKey(window, GLFW_KEY_SPACE)) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -300,6 +307,7 @@ int main(int, char*[]) {
         
             for(int i = 0; i < CASCADE_COUNT; i++) {
                 glUseProgram(cascades[i].id());
+                glUniform1i(rayLMLoc[i], rayLengthMultiplier);
                 glDispatchCompute(64, 64, 1);
                 glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
             }
@@ -314,7 +322,7 @@ int main(int, char*[]) {
                 glDispatchCompute(64, 64, 1);
                 glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
             }
-
+        
         
             //-----------------------------Sample Probes and write to screen----------------------------
         
@@ -323,9 +331,7 @@ int main(int, char*[]) {
             glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
             glBindVertexArray(0);
         }
-
-
-            
+        
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame

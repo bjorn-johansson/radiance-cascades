@@ -1,7 +1,7 @@
 ﻿
 #version 430 core
 
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
 
 //bitmap is 1 cell/uint. 2 least significant bits denote type:
 //  00 = 0 = empty
@@ -15,6 +15,8 @@ layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeTextures;   
 
 uniform int _CascadeLevel; //this differs between cascade levels.
 
+uniform int _RayLengthMultiplier = 1;
+
 const float PI = 3.14159265359;
 
 const float airAbsorption = float(0.05f);
@@ -27,17 +29,19 @@ const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
 
 //const instead of uniform to allow for ray loop unrolling
-const float CASCADE_RAY_LENGTHS[7] = {4f, 7f, 16f, 30f, 57f, 102f, sqrt(2.0f) * 512.0f};
-//const float CASCADE_RAY_LENGTHS[7] = {4f, 8f, 16f, 32f, 64f, 128f,  sqrt(2.0f) * 512.0f}; 
-//const float CASCADE_RAY_LENGTHS[7] = {50f, 100.0f, 175.0f, 250f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
+//const float CASCADE_RAY_LENGTHS[7] = {4f, 8f, 12f, 16f, 24f, 32f, sqrt(2.0f) * 750.0f};
+//const float CASCADE_RAY_LENGTHS[7] = {2f, 4f, 8f, 14f, 24f, 32f,  sqrt(2.0f) * 512.0f}; 
+const float CASCADE_RAY_LENGTHS[7] = {4f, 16f, 32f, 64f, 128f, 254f,  sqrt(2.0f) * 512.0f}; 
+//const float CASCADE_RAY_LENGTHS[7] = {100f, 200.0f, 300.0f, 250f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
+//const float CASCADE_RAY_LENGTHS[7] = {100f, 300.0f, 300.0f, 300f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
 
 
-const int CASCADE_TEXTURE_WIDTH = 512;
+const int CASCADE_TEXTURE_WIDTH = 1024;
 
 const int PROBE_CLUSTER_SIDE = int(pow(2, _CascadeLevel + 1));
 const int PROBE_COUNT = int(pow(CASCADE_TEXTURE_WIDTH / PROBE_CLUSTER_SIDE, 2));
 
-const float RAY_LENGTH = CASCADE_RAY_LENGTHS[_CascadeLevel];   // set to maximum possible length of a ray in the final cascade. based on bitmaps size.
+const float RAY_LENGTH = CASCADE_RAY_LENGTHS[_CascadeLevel] * _RayLengthMultiplier;   // set to maximum possible length of a ray in the final cascade. based on bitmaps size.
 const int RAY_COUNT = PROBE_CLUSTER_SIDE * PROBE_CLUSTER_SIDE;  //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now 
 const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
 
@@ -51,16 +55,19 @@ void main() {
     ivec2 bitmapSize = textureSize(_bitmapTexture, 0);
     vec2 bitmapScale = vec2(bitmapSize) / float(CASCADE_TEXTURE_WIDTH);
     
-    //scale cascade to cover bitmap, place in center of pixel. This means grid isnt perfectly centered on screen, but removes issues of ro between pixels.
-    vec2 po = vec2(id) * bitmapScale + 0.5f;
+    //scale up probe coordinates to cover bitmap
+    vec2 po = (vec2(id) - id % CASCADE_PROBE_SIDES[_CascadeLevel]); //top/bottom left in probe grid
+    vec2 pc = po + CASCADE_PROBE_SIDES[_CascadeLevel] / 2f;  //center of probe in probe grid
+    vec2 bitmapPC = pc * bitmapScale;
 
     uint ri = (id.y % PROBE_CLUSTER_SIDE) * PROBE_CLUSTER_SIDE + (id.x % PROBE_CLUSTER_SIDE);
     float angle = 2f * PI * ((float(ri) + 0.5f) / RAY_COUNT); //+0.5 to shift so half the rays are over 1pi radians
     vec2 rd = vec2(cos(angle), sin(angle));
     
-    vec2 ro = po;
+    //shoot rays from probe center.
+    vec2 ro = bitmapPC;
     for(int i = 0; i < _CascadeLevel; i++){
-        ro += rd * (CASCADE_RAY_LENGTHS[i] + 1);
+        ro += rd * (CASCADE_RAY_LENGTHS[i] * _RayLengthMultiplier); //-5 to get some base overlap? reduces ringing but im not sure about this
     }
     ivec2 cell = ivec2(floor(ro));
     
@@ -69,7 +76,7 @@ void main() {
     
     vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x)),
     sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
-    // vec2(1.5f, 1.5f); //diagonals have 1.5f distance between squares so this can just be assigned later
+    // vec2(1.5f, 1.5f); //perfect diagonals have 1.5f distance through squares so this could just be assigned later
     
     // going in the direction of the ray, how far will we travel through each column/row?
     vec2 distToEdge; 
@@ -83,7 +90,7 @@ void main() {
     float prevDist = 0.f;
     float rayIsAlive = 1.0f;
     float gotBlocked = 0.f; //tells other cascades if this hit a wall
-    float t = distance(po, ro);          //total distance traveled
+    float t = distance(bitmapPC, ro);          //total distance traveled
     float rayMaxDistance = t + RAY_LENGTH;
     float distThroughCell; //for potential volumetrics later.
     
@@ -112,16 +119,17 @@ void main() {
         //a wall, a light or reaching max distance kills the ray.
 
         gotBlocked = max(gotBlocked, blocks);
+
+        
         if(gotBlocked > 0f) {
             break;
         }
         
         //gather radiance
-        vec3 newRad = rayIsAlive * tempEmission * exp(-airAbsorption * (t / 20)); //beers law for attenuation
+        vec3 newRad = rayIsAlive * tempEmission;// * exp(-airAbsorption * (t / 20)); //beers law for attenuation
         radiance += newRad;
-        
         rayIsAlive *= (1.f - emits) * max(sign(rayMaxDistance - t), 0f);
-         
+        
         //advance DDA
         int xCloser = int(abs(distToEdge.x) < abs(distToEdge.y) +0.001f);
         int yCloser = 1 - xCloser;
@@ -140,8 +148,7 @@ void main() {
     }
     //store collected ray data into cascade
     
-    //uvec2 rayCoordInProbe = id % PROBE_CLUSTER_SIDE;
-    //vec2 uvInProbe = vec2(rayCoordInProbe) / float(PROBE_CLUSTER_SIDE);
+    
     imageStore(_cascadeTextures, ivec3(id, _CascadeLevel), vec4(radiance, gotBlocked));
 }
 
@@ -154,28 +161,11 @@ void main() {
 
 
 /*things to try:
-
-    * TODO: make a compiler to allow for multiple different cascade kernels in a single file.
-     would look like this:
-     
-            #version 430 core
-            #kernel Cascade0
-            #kernel Cascade1
-            
-            uniforms
-            consts
-            
-            layout(local_size_x = 4, local_size_y = 1, local_size_z = 1) in;
-            void Cascade0(){
-            }
-            layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
-            void Cascade1(){
-            }
         
     * try splitting long high-cascade rays into multiple threads to avoid having an individual thread march 400 steps
     - perhaps 1 group per ray, and then we accumulate the total with shared memory somehow?
 
-    * add, transmissives, accumulate attenuation stored in every cell, we should get volumetrics for little extra cost
+    * add transmissives, accumulate attenuation stored in every cell, we should get volumetrics for little extra cost
     
     - to do it travelDist through a cell is needed:
     float travelDist = nextDist - prevDist;  //  can be used to partially affect ray based on volume
@@ -187,7 +177,7 @@ void main() {
     if done could also include refraction through the above transmissives
     
     
-//C0 is just the diagonals. we could use this for C0
+//C0 is just the diagonals. could use this for C0
 const vec2 rayDirections[4] = vec2[4](
 vec2(1, 1),
 vec2(1, -1),
@@ -205,23 +195,6 @@ vec2(-1, -1)
 //
 //    return (texel >> shift) & TYPE_MASK; //only take the 2 relevant bits
 //}
-
-    old kinda fucky method to get texel coords:
-    
-    uvec2 probeTexelCoord = gl_WorkGroupID.xy * (gl_WorkGroupSize.xy / RAY_COUNT);
-    ivec2 rayTexelCoord = ivec2(probeTexelCoord + gl_LocalInvocationID.xy % (RAY_COUNT / 2));
-    //uv map for now
-    radiance = vec3(gl_LocalInvocationID.xy % (RAY_COUNT / 2), 0.f);
-    imageStore(uCascade0, rayTexelCoord, vec4(radiance, 1.f - gotBlocked));
-
-
-
-    QUESTIONS:
-    
-    is this now a correct implementation of RC?
-    
-    is DDA bad? can i lower the amount of texture reads somehow?
-
 
 */
  
