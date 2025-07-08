@@ -28,10 +28,11 @@ const uint MATERIAL_MASK = 0xFC;
 const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
 
-//const instead of uniform to allow for ray loop unrolling
-//const float CASCADE_RAY_LENGTHS[7] = {4f, 8f, 12f, 16f, 24f, 32f, sqrt(2.0f) * 750.0f};
+//const lengths instead of uniform to allow for ray loop unrolling, are these still const even if accessed via a uniform index?
+
+//const float CASCADE_RAY_LENGTHS[7] = {4f, 8f, 12f, 24f, 32f, 64f, sqrt(2.0f) * 512.0f};
 //const float CASCADE_RAY_LENGTHS[7] = {2f, 4f, 8f, 14f, 24f, 32f,  sqrt(2.0f) * 512.0f}; 
-const float CASCADE_RAY_LENGTHS[7] = {4f, 16f, 32f, 64f, 128f, 254f,  sqrt(2.0f) * 512.0f}; 
+const float CASCADE_RAY_LENGTHS[7] = {4f, 16f, 64f, 164f, 264f, 364f,  sqrt(2.0f) * 512.0f}; 
 //const float CASCADE_RAY_LENGTHS[7] = {100f, 200.0f, 300.0f, 250f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
 //const float CASCADE_RAY_LENGTHS[7] = {100f, 300.0f, 300.0f, 300f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
 
@@ -43,7 +44,7 @@ const int PROBE_COUNT = int(pow(CASCADE_TEXTURE_WIDTH / PROBE_CLUSTER_SIDE, 2));
 
 const float RAY_LENGTH = CASCADE_RAY_LENGTHS[_CascadeLevel] * _RayLengthMultiplier;   // set to maximum possible length of a ray in the final cascade. based on bitmaps size.
 const int RAY_COUNT = PROBE_CLUSTER_SIDE * PROBE_CLUSTER_SIDE;  //4x scaling, not folling penumbra condition(2x scaling), but easier to work with for now 
-const int RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
+const int MAX_RAY_STEPS = int(floor(RAY_LENGTH * sqrt(2))) + 1;
 
 
 
@@ -64,10 +65,10 @@ void main() {
     float angle = 2f * PI * ((float(ri) + 0.5f) / RAY_COUNT); //+0.5 to shift so half the rays are over 1pi radians
     vec2 rd = vec2(cos(angle), sin(angle));
     
-    //shoot rays from probe center.
+    //shoot rays from probe centers.
     vec2 ro = bitmapPC;
     for(int i = 0; i < _CascadeLevel; i++){
-        ro += rd * (CASCADE_RAY_LENGTHS[i] * _RayLengthMultiplier); //-5 to get some base overlap? reduces ringing but im not sure about this
+        ro += rd * (CASCADE_RAY_LENGTHS[i] * _RayLengthMultiplier);
     }
     ivec2 cell = ivec2(floor(ro));
     
@@ -94,7 +95,7 @@ void main() {
     float rayMaxDistance = t + RAY_LENGTH;
     float distThroughCell; //for potential volumetrics later.
     
-    for(int i = 0; i < RAY_STEPS; i++) {
+    for(int i = 0; i < MAX_RAY_STEPS; i++) {
         
         if(any(lessThan(cell, ivec2(0))) || any(greaterThanEqual(cell, bitmapSize)))
             break;
@@ -130,6 +131,11 @@ void main() {
         radiance += newRad;
         rayIsAlive *= (1.f - emits) * max(sign(rayMaxDistance - t), 0f);
         
+        if(emits > 0f){
+            //TODO: make emitters opaque, this rendering system should handle it fine, and because it doesn't something must be wrong.
+            gotBlocked = 1;
+        }
+
         //advance DDA
         int xCloser = int(abs(distToEdge.x) < abs(distToEdge.y) +0.001f);
         int yCloser = 1 - xCloser;
@@ -143,8 +149,8 @@ void main() {
         distToEdge.x += xCloser * rayUnitStepSize.x;
         cell.y += yCloser * step.y;
         distToEdge.y += yCloser * rayUnitStepSize.y;
-
-
+        
+        if(t > rayMaxDistance) break;
     }
     //store collected ray data into cascade
     
