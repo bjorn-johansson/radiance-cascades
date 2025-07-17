@@ -22,6 +22,9 @@
 #define _USE_MATH_DEFINES
 #endif
 
+
+#define TRACY_ENABLE
+
 // File and console I/O for logging and error reporting
 #include <iostream>
 // Math header for trigonometric functions
@@ -164,7 +167,7 @@ int main(int, char*[]) {
     glClearTexImage(bitmapTex, 0, GL_RED_INTEGER, GL_UNSIGNED_BYTE, &zero);
 
     
-    Texture worldTex("Textures/penumbra.tga"); //selects what scene to use
+    Texture worldTex("Textures/SceneTexture1.tga"); //selects what scene to use
     glActiveTexture(GL_TEXTURE10);
     glBindTexture(GL_TEXTURE_2D, worldTex.id());
     

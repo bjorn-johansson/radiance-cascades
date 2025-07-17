@@ -57,7 +57,7 @@ void main() {
     P01 * weight.z +
     P11 * weight.w;
     
-    lighting = lighting / (lighting + 1.0); //Reinhard tonemapping (bad)
+    //lighting = lighting / (lighting + 1.0); //Reinhard tonemapping (bad)
     
     lighting.r = pow(lighting.r, 1/2.2f);   //gamma correction
     lighting.g = pow(lighting.g, 1/2.2f);
@@ -69,7 +69,7 @@ void main() {
     
     if(_ProbeUV == 1){
         //vec2 uv = weight.xy;
-        vec2 uv = vec2(ivec2(texCoords * 1024) % PROBE_BLOCK_SIDES[_Layer] / float(PROBE_BLOCK_SIDES[_Layer]));
+        vec2 uv = vec2(ivec2(texCoords * PROBE_TEXTURE_SIDE) % PROBE_BLOCK_SIDES[_Layer] / float(PROBE_BLOCK_SIDES[_Layer]));
         uv *= 0.5f;
         lighting += vec3(uv, 0);
     }

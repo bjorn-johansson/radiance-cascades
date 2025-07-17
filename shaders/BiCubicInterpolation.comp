@@ -1,0 +1,28 @@
+﻿
+#version 430 core
+
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+
+layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
+layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
+
+uniform int _sourceLayerIndex;
+uniform int _Merge;
+
+const int CASCADE_TEXTURE_SIDE = 1024;
+const int CASCADE_SCALING = 4;
+
+const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
+
+ivec2 ProbeIndexToCoord(int index, int width, ivec2 probeID) {
+    ivec2 coord = ivec2(index % width, index / width);
+    return probeID * width + coord;
+}
+
+
+void main() {
+    const int TARGET_PROBE_SIDE = CASCADE_PROBE_SIDES[_sourceLayerIndex - 1];
+    const int SOURCE_PROBE_SIDE = CASCADE_PROBE_SIDES[_sourceLayerIndex];
+    ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+
+}

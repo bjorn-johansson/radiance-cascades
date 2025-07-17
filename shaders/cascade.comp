@@ -30,11 +30,16 @@ const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
 //const lengths instead of uniform to allow for ray loop unrolling, are these still const even if accessed via a uniform index?
 
-//const float CASCADE_RAY_LENGTHS[7] = {4f, 8f, 12f, 24f, 32f, 64f, sqrt(2.0f) * 512.0f};
-//const float CASCADE_RAY_LENGTHS[7] = {2f, 4f, 8f, 14f, 24f, 32f,  sqrt(2.0f) * 512.0f}; 
-const float CASCADE_RAY_LENGTHS[7] = {4f, 16f, 64f, 164f, 264f, 364f,  sqrt(2.0f) * 512.0f}; 
-//const float CASCADE_RAY_LENGTHS[7] = {100f, 200.0f, 300.0f, 250f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
-//const float CASCADE_RAY_LENGTHS[7] = {100f, 300.0f, 300.0f, 300f, 300.0f, 500.0f, sqrt(2.0f) * 512.0f};
+const float SQRT2 = 1.41421356f;
+const float CASCADE_RAY_LENGTHS[7] = {
+    pow(4, 0) * SQRT2,
+    pow(4, 1) * SQRT2,
+    pow(4, 2) * SQRT2,
+    pow(4, 3) * SQRT2,
+    pow(4, 4) * SQRT2,
+    pow(4, 5) * SQRT2,
+    pow(4, 6) * SQRT2
+};
 
 
 const int CASCADE_TEXTURE_WIDTH = 1024;
@@ -175,32 +180,6 @@ void main() {
     
     - to do it travelDist through a cell is needed:
     float travelDist = nextDist - prevDist;  //  can be used to partially affect ray based on volume
-    
-    
-    * wall bounces / refraction:
-    change wall hits to a bounce and redirect ray. Would require normals.
-    would also require calculating the new angle every cell, perhaps doable with tables and set amount of wall angles?
-    if done could also include refraction through the above transmissives
-    
-    
-//C0 is just the diagonals. could use this for C0
-const vec2 rayDirections[4] = vec2[4](
-vec2(1, 1),
-vec2(1, -1),
-vec2(-1, 1),
-vec2(-1, -1)
-);
-    
-    used when only 2 bits denoted type:
-//uint getTypeID(ivec2 gridCell) { 
-//    int cellX = gridCell.x / 4;
-//    int cellInTexel = gridCell.x % 4;
-//
-//    uint texel = texelFetch(uBitmapTexture, ivec2(cellX, gridCell.y), 0).r;
-//    uint shift = uint(cellInTexel) * 2u;
-//
-//    return (texel >> shift) & TYPE_MASK; //only take the 2 relevant bits
-//}
 
 */
  
