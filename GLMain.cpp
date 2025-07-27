@@ -23,8 +23,6 @@
 #endif
 
 
-#define TRACY_ENABLE
-
 // File and console I/O for logging and error reporting
 #include <iostream>
 // Math header for trigonometric functions
@@ -40,10 +38,15 @@
 
 #include "Utilities.hpp"
 #include "TriangleSoup.hpp"
+#include "CascadePreprocessor.hpp"
 
 #include "Shader.hpp"
 #include "Texture.hpp"
 #include "Tracy.hpp"
+#include "TracyOpenGL.hpp"
+#include "../build/CascadePreprocessor.hpp"
+
+constexpr int CASCADE_COUNT = 6;
 
 int rayLengthMultiplier = 1;
 void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
@@ -56,6 +59,10 @@ void ScrollCallback(GLFWwindow* window, double xoffset, double yoffset)
 
 int main(int, char*[]) {
 
+    //This generates N cascade shader files and adds "#Define CASCADE_LEVEL N" when it hits the line #PreprocesCascadeLevel
+    //this is to get loop unrolling in my raymarching without having to manage 7+ files where the only difference is 1 value.
+    CascadePreprocessor::preprocessCascades(CASCADE_COUNT);
+    
     // Initialise GLFW
     glfwInit();
     
@@ -91,6 +98,7 @@ int main(int, char*[]) {
         return -1;
     }
 
+
     // Show some useful information on the GL context
     std::cout << "GL vendor:       " << glGetString(GL_VENDOR)
               << "\nGL renderer:     " << glGetString(GL_RENDERER)
@@ -111,21 +119,13 @@ int main(int, char*[]) {
 
 
 
-
-
-
-
-
-
-
-
-    const float s = 1.f; //scalar for squashing
+    constexpr float SQUASH = 1.f; //scalar for squashing the quad
     //quad for writing to screen:
     float quadVertices[] = {
-        -s, -s,    0.f, 0.f,
-         s, -s,    1.f, 0.f,
-        -s,  s,    0.f, 1.f,
-         s,  s,    1.f, 1.f,
+        -SQUASH, -SQUASH,    0.f, 0.f,
+         SQUASH, -SQUASH,    1.f, 0.f,
+        -SQUASH,  SQUASH,    0.f, 1.f,
+         SQUASH,  SQUASH,    1.f, 1.f,
     };
 
     GLuint quadVAO, quadVBO;
@@ -214,14 +214,14 @@ int main(int, char*[]) {
     glActiveTexture(GL_TEXTURE2); //binding to texture unit 2
     glBindTexture(GL_TEXTURE_2D_ARRAY, cascadeTextures);
     
-    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA32F, 1024, 1024, 7);
+    glTexStorage3D(GL_TEXTURE_2D_ARRAY, 1, GL_RGBA16F, 1024, 1024, 7);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
     //bind to image unit 2
-    glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA32F);
+    glBindImageTexture(2, cascadeTextures, 0, GL_TRUE, 0, GL_WRITE_ONLY, GL_RGBA16F);
 
     
 
@@ -229,28 +229,24 @@ int main(int, char*[]) {
     //but had issues where the binding got lost and the scenetexture was read instead. I will look to remove this later.
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, bitmapTex);
-
-    constexpr int CASCADE_COUNT = 7;
+    
     Shader cascades[CASCADE_COUNT] = {
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
-        Shader("shaders/cascade.comp"),
+        Shader("shaders/generated/Cascade0.comp"),
+        Shader("shaders/generated/Cascade1.comp"),
+        Shader("shaders/generated/Cascade2.comp"),
+        Shader("shaders/generated/Cascade3.comp"),
+        Shader("shaders/generated/Cascade4.comp"),
+        Shader("shaders/generated/Cascade5.comp"),
+        //Shader("shaders/generated/Cascade6.comp"),
     };
 
-    GLint rayLMLoc[7];
+    GLint rayLMLoc[CASCADE_COUNT];
     for(int i = 0; i < CASCADE_COUNT; i++) {
         glUseProgram(cascades[i].id());
         glUniform1i(glGetUniformLocation(cascades[i].id(), "_bitmapTexture"), 0);
-        glUniform1i(glGetUniformLocation(cascades[i].id(), "_CascadeLevel"), i);
         rayLMLoc[i] = glGetUniformLocation(cascades[i].id(), "_RayLengthMultiplier");
         glUniform1i(rayLMLoc[i], rayLengthMultiplier);
     }
-    
-    
 
     
     //-----------------------------------MERGE CASCADES---------------------------------------------
@@ -296,7 +292,7 @@ int main(int, char*[]) {
     
     
     //----------------------------------------MAIN LOOP---------------------------------------------
-    
+    TracyGpuContext;
     while (!glfwWindowShouldClose(window)) {
         ZoneScoped;
         // Set the clear color to a dark gray (RGBA)
@@ -304,37 +300,54 @@ int main(int, char*[]) {
         // Clear the color and depth buffers for drawing
         glfwSetScrollCallback(window, ScrollCallback);
         
-        if (glfwGetKey(window, GLFW_KEY_SPACE)) {
+        if (!glfwGetKey(window, GLFW_KEY_SPACE)) {
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
             //-------------------------------GATHER RAYS------------------------------------------------
-        
-            for(int i = 0; i < CASCADE_COUNT; i++) {
-                glUseProgram(cascades[i].id());
-                glUniform1i(rayLMLoc[i], rayLengthMultiplier);
-                glDispatchCompute(64, 64, 1);
-                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+           
+            {
+                TracyGpuZone("Cascade Dispatches");
+
+                //glUniform1i(rayLMLoc, rayLengthMultiplier);
+                for(int i = 0; i < CASCADE_COUNT; i++) {
+                    {
+                        TracyGpuZone("Cascade");
+                        std::string msg = "c" + std::to_string(i);
+                        TracyMessage(msg.c_str(), msg.length());
+                        glUseProgram(cascades[i].id());
+                        glDispatchCompute(64, 64, 1);
+                    }
+                }
             }
 
-        
-            //RC is typically memory-bound, so i reuse the textures.
-            //- Prime space for profiling and seeing the difference.
-            glUseProgram(merge.id());
-            glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
-            for(int i = highestLayer; i > 0; i--) {
-                glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
-                glDispatchCompute(64, 64, 1);
-                glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT | GL_SHADER_STORAGE_BARRIER_BIT);
+            {
+                TracyGpuZone("Merge Dispatches");
+                //RC is typically memory-bound, so i reuse the textures.
+                //- Prime space for profiling and seeing the difference.
+                glUseProgram(merge.id());
+                glUniform1i(glGetUniformLocation(merge.id(), "_cascadeSamplers"), 2);
+                for(int i = highestLayer; i > 0; i--) {
+                    {
+                        TracyGpuZone("Merge Dispatch");
+                        std::string msg = "c" + std::to_string(i);
+                        TracyMessage(msg.c_str(), msg.length());
+                        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT);
+                        glUniform1i(glGetUniformLocation(merge.id(), "_sourceLayerIndex"), i);
+                        glDispatchCompute(64, 64, 1);
+                    }
+                }
             }
+
+            {
+                TracyGpuZone("ScreenWrite Dispatch");
+                //-----------------------------Sample Probes and write to screen----------------------------
         
-        
-            //-----------------------------Sample Probes and write to screen----------------------------
-        
-            glUseProgram(screenWrite.id());
-            glBindVertexArray(quadVAO);
-            glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-            glBindVertexArray(0);
+                glUseProgram(screenWrite.id());
+                glBindVertexArray(quadVAO);
+                glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+                glBindVertexArray(0);
+            }
         }
-        
+        TracyGpuCollect; //GPU work done
         
         util::displayFPS(window);
         // Swap buffers, display the image and prepare for next frame
@@ -345,7 +358,7 @@ int main(int, char*[]) {
         if (glfwGetKey(window, GLFW_KEY_ESCAPE)) {
             glfwSetWindowShouldClose(window, GL_TRUE);
         }
-            
+            /*
         if(timePaused != 0) {
             if(timePaused >= inputPauseTime) {
                 timePaused = 0;
@@ -424,8 +437,10 @@ int main(int, char*[]) {
                 inputPauseTime = defaultInputPauseTime;
             }
         }
+        */
                 
         FrameMark; // Marks the end of a frame for Tracy
+        
     }
 
     // Close the OpenGL window and terminate GLFW

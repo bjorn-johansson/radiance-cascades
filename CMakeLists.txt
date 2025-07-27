@@ -23,11 +23,12 @@ add_subdirectory(external/glfw)
 add_subdirectory(external/glm)
 
 set(HEADER_FILES
-	Rotator.hpp
-	Shader.hpp
-	Texture.hpp
-	TriangleSoup.hpp
-	Utilities.hpp
+    Rotator.hpp
+    Shader.hpp
+    Texture.hpp
+    TriangleSoup.hpp
+    Utilities.hpp
+    CascadePreprocessor.hpp
 )
 
 set(SOURCE_FILES
@@ -40,14 +41,7 @@ set(SOURCE_FILES
 )
 
 set(SHADER_FILES
-    shaders/cascade.comp
-    shaders/cascade0.comp
-    shaders/cascade1.comp
-    shaders/cascade2.comp
-    shaders/cascade3.comp
-    shaders/cascade4.comp
-    shaders/cascade5.comp
-    shaders/cascade6.comp
+    shaders/Cascade.comp
     shaders/GenerateSceneBitmap.comp
     shaders/MergeCascades.comp
     shaders/ScreenWrite.vert
