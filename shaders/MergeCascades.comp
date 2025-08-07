@@ -1,10 +1,10 @@
 ﻿
 #version 430 core
 
-layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //TODO: explore better groups and compare gpu scheduling perf
+layout(local_size_x = 16, local_size_y = 16, local_size_z = 1) in; //an interesting idea is to do warp group z coord = cascade level.
 
 layout(binding = 2) uniform sampler2DArray _cascadeSamplers; //read
-layout(binding = 2, rgba32f) uniform writeonly image2DArray _cascadeImages; //write
+layout(binding = 2, rgba16f) uniform writeonly image2DArray _cascadeImages; //write
 
 uniform int _sourceLayerIndex;
 uniform int _Merge;
@@ -14,20 +14,11 @@ const int CASCADE_SCALING = 4;
 
 const int CASCADE_PROBE_SIDES[7] = { 2, 4, 8, 16, 32, 64, 128};
 
-//the 4 possible weights when doing grid bilinear merging, results in a slightly square look so can be altered to smooth it out
+//the 4 possible weights when doing bilinear merging in a grid
 const vec4 weights[2][2] = vec4[2][2](
     vec4[2](vec4(0.5625, 0.1875, 0.1875, 0.0625), vec4(0.1875, 0.5625, 0.0625, 0.1875)),
     vec4[2](vec4(0.1875, 0.0625, 0.5625, 0.1875), vec4(0.0625, 0.1875, 0.1875, 0.5625))
 );
-
-vec4 BilinearWeights(vec2 ratio) {
-    return vec4(
-    (1.0 - ratio.x) * (1.0 - ratio.y),
-    ratio.x * (1.0 - ratio.y),
-    (1.0 - ratio.x) * ratio.y,
-    ratio.x * ratio.y
-    );
-}
 
 int CoordToIndex(ivec2 coord, int width){
     return coord.y * width + coord.x;
@@ -41,14 +32,13 @@ ivec2 ProbeIndexToCoord(int index, int width, ivec2 probeID) {
 vec3 SampleProbe(ivec2 probeID, int DirBlockIndex) {
 
     ivec2 gridExtent = ivec2(CASCADE_TEXTURE_SIDE / float(CASCADE_PROBE_SIDES[_sourceLayerIndex]));
-    if (any(lessThanEqual(probeID, ivec2(-1))) || any(greaterThanEqual(probeID, gridExtent))) {    //todo: fix branching?
+    if (any(lessThanEqual(probeID, ivec2(-1))) || any(greaterThanEqual(probeID, gridExtent))) {
         return vec3(0,0,0);
     }
 
     int width = CASCADE_PROBE_SIDES[_sourceLayerIndex];
     ivec2 baseCoord = ProbeIndexToCoord(DirBlockIndex, width, probeID);
     
-
     vec3 radiance = vec3(0.0);
     for (int i = 0; i < CASCADE_SCALING; i++) {
         ivec2 fetchCoord = baseCoord + ivec2(i, 0); //groups of 4 indicies will always share y value.
@@ -82,12 +72,10 @@ void main() {
     
     vec4 weight = weights[offset.y][offset.x];
     
-    //texel coord in the probe were writing to
-    ivec2 targetTexelInProbe = id % TARGET_PROBE_SIDE;  
-    //convert to directional index inside the probe that we are writing to
-    int tgtDirIndex = CoordToIndex(targetTexelInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]);
-    //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
-    int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;
+   
+    ivec2 targetTexelInProbe = id % TARGET_PROBE_SIDE;                                              //texel coord in the probe were writing to
+    int tgtDirIndex = CoordToIndex(targetTexelInProbe, CASCADE_PROBE_SIDES[_sourceLayerIndex - 1]); //convert to directional index inside the probe that we are writing to
+    int srcIndexBlock = tgtDirIndex * CASCADE_SCALING;                                              //scale that up to get the 4 source indicies going in the directions that are closest to our target ray.
     
     vec3 P00 = SampleProbe(baseID, srcIndexBlock);
     vec3 P10 = SampleProbe(baseID + ivec2(1, 0), srcIndexBlock);
@@ -110,12 +98,3 @@ void main() {
        imageStore(_cascadeImages, ivec3(id, _sourceLayerIndex-1), vec4(result, targetCol.a));
     }
 }
-
-/*
-old merge
-    //base = ivec2(floor(sourceProbeCoord));
-    //vec2 frac = fract(sourceProbeCoord);
-    //weight = BilinearWeights(frac);
-
-
-*/

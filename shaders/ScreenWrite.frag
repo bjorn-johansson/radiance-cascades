@@ -13,7 +13,7 @@ uniform int _Layer;
 uniform int _Interpolate;
 uniform int _ProbeUV;
 
-//the 4 possible weights when doing grid bilinear merging, results in a slightly square look so can be altered to smooth it out
+//the 4 possible weights when doing bilinear merging in a grid
 const vec4 weights[2][2] = vec4[2][2](
 vec4[2](vec4(0.5625, 0.1875, 0.1875, 0.0625), vec4(0.1875, 0.5625, 0.0625, 0.1875)),
 vec4[2](vec4(0.1875, 0.0625, 0.5625, 0.1875), vec4(0.0625, 0.1875, 0.1875, 0.5625))
@@ -57,7 +57,6 @@ void main() {
     P01 * weight.z +
     P11 * weight.w;
     
-    //lighting = lighting / (lighting + 1.0); //Reinhard tonemapping (bad)
     
     lighting.r = pow(lighting.r, 1/2.2f);   //gamma correction
     lighting.g = pow(lighting.g, 1/2.2f);
@@ -68,10 +67,9 @@ void main() {
     }
     
     if(_ProbeUV == 1){
-        //vec2 uv = weight.xy;
-        vec2 uv = vec2(ivec2(texCoords * PROBE_TEXTURE_SIDE) % PROBE_BLOCK_SIDES[_Layer] / float(PROBE_BLOCK_SIDES[_Layer]));
+        vec2 uv = vec2(ivec2((texCoords / 32) * PROBE_TEXTURE_SIDE) % PROBE_BLOCK_SIDES[_Layer] / (float(PROBE_BLOCK_SIDES[_Layer]) / 2));
         uv *= 0.5f;
-        lighting += vec3(uv, 0);
+        lighting = vec3(uv, 0);
     }
     
     fragColor = vec4(lighting, 1.0);

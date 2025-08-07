@@ -6,29 +6,34 @@
 #include <string>
 #include <filesystem>
 
-//this should maybe be made more generic but i just need it for loop unrolling in my cascades.
-//if i don't get a perf increase from this i swear.
+
+/*
+    This was a bit of an experiment to see if i gain any perf from loop unrolling in my cascades.
+    As i raymarch a ton i expected some decent benefits from unrolling these DDA loops.
+    Turns out, i only shave off ~0.2ms. Around 5%.
+    All in all, less gain than i expected, but a very good learning experience.
+    I need to get better at using the Nsight tools to find what actually limits my shader code.
+*/
+// this should maybe be made more generic but i just need it for loop unrolling in my cascades
+// OpenGL doesn't support multiple different compile-time constant values in the same shader so multiple files are needed
 namespace CascadePreprocessor {
 
-    constexpr const char* CASCADE_SHADER = "shaders/Cascade.generate";
-    constexpr const char* OUTPUT_DIR = "shaders/generated/";
+    inline void preprocessCascades(const int cascadeCount) {
 
-    inline void preprocessShaders(int cascadeCount) {
-
-        std::ifstream templateFile(CASCADE_SHADER);
+        std::ifstream templateFile("shaders/Cascade.comp");
         if (!templateFile.is_open()) {
-            std::cerr << "ERROR: Failed to open template shader: " << CASCADE_SHADER << "\n";
+            std::cerr << "ERROR: Failed to open template cascade shader!\n";
             return;
         }
 
         std::stringstream buffer;
         buffer << templateFile.rdbuf();
         std::string templateContent = buffer.str();
-        std::filesystem::create_directories(OUTPUT_DIR);
+        std::filesystem::create_directories("shaders/generated/");
 
         for (int c = 0; c < cascadeCount; ++c) {
             std::ostringstream outputFilename;
-            outputFilename << OUTPUT_DIR << "Cascade" << c << ".comp";
+            outputFilename << "shaders/generated/" << "Cascade" << c << ".comp";
 
             std::ofstream outFile(outputFilename.str());
             if (!outFile.is_open()) {
@@ -45,16 +50,28 @@ namespace CascadePreprocessor {
             bool directiveInserted = false;
 
             while(std::getline(stream, line)) {
-                if(!directiveInserted && line.find("#PreprocesCascadeLevel") != std::string::npos){
-                    line = defineDirective;
+                if(!directiveInserted && line.find("#PreprocessCascadeLevel") != std::string::npos){
                     directiveInserted = true;
+                    
+                    line = defineDirective; //add the define
+                    modified << line << "\n";
+                    
+                    std::getline(stream, line); //empty the next line, should contain a dummy #define CASCADE_LEVEL -1
+                    line = "\n";
                 }
                 modified << line << "\n";
+
             }
             if(!directiveInserted)
-                outFile << defineDirective; //if we cant find the marker, just place it at the top. - might interfere with opengls #version?
-            outFile << modified.str();
-            outFile.close();
+            {
+                std::cout << "ERROR: Failed to find preprocessing directive location!\nMake sure #PreprocessCascadeLevel exists in Cascades.comp!";
+                outFile.close();
+            }
+            else
+            {
+                outFile << modified.str();
+                outFile.close();
+            }
 
             std::cout << "Preprocessor generated cascade file: " << outputFilename.str() << "\n";
         }

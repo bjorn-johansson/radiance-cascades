@@ -14,7 +14,7 @@ layout(binding = 1) uniform sampler2D _materialAtlas;               //READ
 layout(binding = 2, rgba16f) uniform writeonly image2DArray _cascadeTextures;   //WRITE
 
 
-#PreprocesCascadeLevel //this and the line below it will be replaced with a #define CASCADE_LEVEL N to enable loop unrolling
+#PreprocessCascadeLevel //this and the line below it will be replaced with a #define CASCADE_LEVEL N to enable loop unrolling
 #define CASCADE_LEVEL 0 //set just to have a value during coding
 
 #define SQRT2 1.41421356f
@@ -23,7 +23,7 @@ uniform int _RayLengthMultiplier = 1;
 
 const float PI = 3.14159265359;
 
-const float airAbsorption = float(0.05f);
+const float airAbsorption = float(0.0015f);
 
 const uint WALL_MASK = 0x1;
 const uint EMITTER_MASK = 0x2;
@@ -83,7 +83,6 @@ void main() {
     
     vec2 rayUnitStepSize = vec2(sqrt(1 + (rd.y / rd.x) * (rd.y / rd.x)),
     sqrt(1 + (rd.x / rd.y) * (rd.x / rd.y)));
-    // vec2(1.5f, 1.5f); //perfect diagonals have 1.5f distance through squares so this could just be assigned later
     
     // going in the direction of the ray, how far will we travel through each column/row?
     vec2 distToEdge; 
@@ -115,31 +114,25 @@ void main() {
         float emits = float((cellData & EMITTER_MASK) != 0u);
         float transmits = 1.f - blocks;
         
-        ////get the emissive material. If it isn't emissive set index to 0. should improve cache hits? TODO: try changing this and compare with tracy!
-        //uint matID = (cellData >> 2) * uint(emits);
-        //ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
-        //vec4 material = texelFetch(_materialAtlas, matTexelCoord, 0); //0 vector at indx 0
-        //vec3 emission = material.rgb * material.a;
-        
-
-        
         //a wall, a light or reaching max distance kills the ray.
-
         gotBlocked = max(gotBlocked, blocks);
         
         if(gotBlocked > 0f) {
             break;
         }
         
-        vec3 cellEmmission = emits * vec3(1f);
-        //tempEmission = mix(vec3(1f,0f,0f), tempEmission, insideTexture);
+        vec3 col = vec3(0f, 0.4f, 1f);          //extremely hacky way of doing colored lights, very bad :)
+        if(cell.x >= 512)
+            col = vec3(1f, 0.5f, 0.1f);
+        
+        vec3 cellEmmission = emits * col;
         
         //gather radiance
-        radiance += rayIsAlive * cellEmmission;// * exp(-airAbsorption * (t / 20)); //beers law for attenuation. adds 0.2ms at 6 cascades :/
+        radiance += rayIsAlive * cellEmmission * exp(-airAbsorption * t); //beers law for attenuation. adds 0.2ms at 6 cascades :/
         rayIsAlive *= (1.f - emits) * max(sign(rayMaxDistance - t), 0f);
         
-        if(emits > 0f){
-            //TODO: make emitters opaque, this rendering system should handle it fine, and because it doesn't something must be wrong.
+        
+        if(emits > 0f){ //emitters are opaque
             gotBlocked = 1;
         }
 
@@ -159,9 +152,11 @@ void main() {
         
         if(t > rayMaxDistance) break;
     }
+    //ambient light for nice pictures
+    if(radiance == 0)
+        radiance += vec3(0.001f);
+    
     //store collected ray data into cascade
-    
-    
     imageStore(_cascadeTextures, ivec3(id, CASCADE_LEVEL), vec4(radiance, gotBlocked));
 }
 
@@ -178,10 +173,15 @@ void main() {
     * try splitting long high-cascade rays into multiple threads to avoid having an individual thread march 400 steps
     - perhaps 1 group per ray, and then we accumulate the total with shared memory somehow?
 
-    * add transmissives, accumulate attenuation stored in every cell, we should get volumetrics for little extra cost
-    
+    * add transmissives, accumulate attenuation stored in every cell, we should get volumetrics for little extra cost 
     - to do it travelDist through a cell is needed:
     float travelDist = nextDist - prevDist;  //  can be used to partially affect ray based on volume
 
+     Unused for now:
+     //get the emissive material. If it isn't emissive set index to 0. should improve cache hits? 
+     uint matID = (cellData >> 2) * uint(emits);
+     ivec2 matTexelCoord = ivec2(matID % 8, matID / 8);
+     vec4 material = texelFetch(_materialAtlas, matTexelCoord, 0); //0 vector at indx 0
+     vec3 emission = material.rgb * material.a;
 */
  
